@@ -1,6 +1,6 @@
 # TC-001 Login success/fail
 
-Status: draft  
+Status: automated — PASS  
 Type: e2e  
 Priority: P0  
 Module: auth
@@ -18,6 +18,7 @@ Module: auth
 3. Убедиться, что сессия не создана, показана ошибка.
 4. Ввести валидные credentials bootstrap admin → Submit.
 5. Убедиться в редиректе на `/app` (или dashboard) и наличии session cookie.
+6. (optional) Unauthenticated `GET /app` → redirect `/login`.
 
 ## Expected
 
@@ -27,15 +28,18 @@ Module: auth
 
 ## Automation
 
-`tests/e2e/` — путь TBD (`login.spec.ts`), пока **manual**/skeleton.
+`tests/e2e/login.spec.ts` (project `chromium-auth`)  
+Helper: `tests/helpers/auth.ts`  
+Setup (shared session for other specs): `tests/e2e/auth.setup.ts`
 
 ## Last run
 
-datetime: —  
-command: —  
-result: —  
-evidence: —
+datetime: 2026-09-22 23:16 UTC  
+command: `npm run test:e2e`  
+result: PASS (3/3)  
+evidence: Playwright list reporter; HTML `playwright-report/`; suite exit 0
 
 ## Notes
 
-Wave 0: `/login` placeholder — кейс не исполнять до wiring Better Auth.
+- Better Auth production rate-limit on `/sign-in` is 3 req / 10s (`next start`). Auth setup + TC-001 stay within budget; helper retries on 429.
+- Selectors: `data-testid=login-*` on `components/auth/login-form.tsx`.

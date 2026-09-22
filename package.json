@@ -16,6 +16,8 @@
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
     "db:push": "drizzle-kit push",
+    "bootstrap:admin": "tsx --env-file=.env scripts/bootstrap-admin.ts",
+    "seed:vulns": "tsx --env-file=.env scripts/seed-vulnerabilities.ts",
     "worker": "tsx worker/index.ts"
   },
   "dependencies": {

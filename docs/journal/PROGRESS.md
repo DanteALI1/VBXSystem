@@ -1,57 +1,65 @@
 # PROGRESS
 
-## 2026-09-22 22:55 — Волна 0 / Foundation
+## 2026-09-22 23:21 — Волна 1 / Auth + shell + vulns
 
 ### Цель
 
-Заложить foundation MVP: Next.js scaffold, Drizzle schema, docker-compose, domain helpers, unit tests, полная документация и черновики TC-001…017.
+Auth (Better Auth + bootstrap), app shell + dashboard, каталог уязвимостей (list/detail/API/seed), e2e TC-001/003/004, скрины A2/B1/B2/C3/C4/F2.
 
 ### Что сделано
 
-- Scaffold приложения (маршруты UI placeholders, Better Auth каркас).
-- `db/schema.ts` + drizzle migration.
-- docker-compose: postgres, redis, app, worker.
-- Domain: `lib/domain/allowlist.ts`, `lib/domain/severity.ts`.
-- Unit: `tests/unit/allowlist.test.ts`, `tests/unit/severity.test.ts` (14 tests).
-- Worker stub: очереди `nvd-sync`, `bdu-sync`, `scan`.
-- Документация: полное дерево `docs/` (архитектура, setup, features, api, ops, ADR, journal, testing + cases).
-- TC-001…017 draft files.
-- Stub: `tests/fixtures/README.md`, `scripts/capture-setup-screenshots.ts`.
+- Better Auth email/password, `proxy.ts` gate `/app/**`, login UI, role helpers, `npm run bootstrap:admin`
+- App shell (nav, user menu), dashboard API + counters + last sync
+- Vulnerabilities API/list/detail + TanStack Table filters; `npm run seed:vulns` (6 records)
+- Playwright e2e TC-001/003/004; screenshot script + PNGs
+- Docs: auth-roles, bootstrap, vulnerabilities, dashboard, RESULTS, walkthrough
 
 ### Как проверял (команды + UI)
 
 ```bash
-npm run typecheck   # exit 0
-npm run lint        # exit 0 (eslint .)
-npm run test:unit   # exit 0 — 14 passed
+npm run typecheck          # exit 0
+npm run lint               # exit 0
+npm run test:unit          # exit 0 — 14 passed
+npm run test:e2e           # exit 0 — 8 passed
+npm run test:screenshots   # exit 0
 ```
 
-UI: placeholders `/login`, `/app/*` — визуально не гонялись (Wave 0 допускает placeholders).  
-Docker binary отсутствует в среде → A1 screenshot blocked.
+UI: login, dashboard (6 vulns), vulnerabilities table, CVE+BDU detail — verified via screenshots + e2e.
 
 ### Результат PASS
 
-Gate Wave 0 закрыт. P0 foundation (schema/domain/unit) зелёные. Открытых P0 нет.
+Gate Wave 1 закрыт. Открытых P0 по scope волны нет. TC-002 отложен на Wave 2.
 
 ### Скриншоты
 
-- A1 docker-up: **blocked** (нет `docker` в среде агента). Зафиксировано в walkthrough.
-- A2–F2: pending (волны 1–3).
+- A2, B1, B2, C3, C4, F2 — `captured` в `docs/setup-walkthrough/images/`
+- A1 — всё ещё blocked (нет docker)
 
 ### Тесты
 
-- Unit allowlist/severity — PASS.
-- Integration/e2e — N/A skeleton.
-- См. [RESULTS.md](../testing/RESULTS.md).
+- TC-001/003/004 — automated, passed
+- См. [RESULTS.md](../testing/RESULTS.md)
 
 ### Риски/TODO
 
-- Bootstrap admin не реализован (только env) → Wave 1.
-- Auth UI / middleware не wired → Wave 1.
-- Worker processors отсутствуют → Wave 2–3.
-- API endpoints — план в docs/api.
-- Нет скринов walkthrough → Waves 1–3.
-- Docker недоступен в CI-агенте — compose файлы есть, прогон локально/в среде с Docker.
+- Better Auth rate-limit 3/10s на sign-in — mitigated storageState
+- Sync workers / assets / allowlist → Wave 2
+- Scans / findings → Wave 3
+- AUTH_SECRET короткий в `.env.example` — только для local scaffold
+
+### Commit
+
+`feat: auth shell vulns + docs/tests/screens wave1`
+
+## 2026-09-22 22:55 — Волна 0 / Foundation
+
+### Цель
+
+Foundation MVP: scaffold, schema, docs/TC skeleton.
+
+### Результат PASS
+
+См. предыдущую запись / WAVE-00-CHECKLIST.
 
 ### Commit
 

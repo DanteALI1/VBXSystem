@@ -1,0 +1,65 @@
+{
+  "resultsPerPage": 2,
+  "startIndex": 0,
+  "totalResults": 2,
+  "format": "NVD_CVE",
+  "version": "2.0",
+  "vulnerabilities": [
+    {
+      "cve": {
+        "id": "CVE-2024-3094",
+        "sourceIdentifier": "seed",
+        "published": "2024-03-29T00:00:00.000",
+        "lastModified": "2024-04-02T00:00:00.000",
+        "vulnStatus": "Analyzed",
+        "descriptions": [
+          {
+            "lang": "en",
+            "value": "Malicious code in XZ Utils versions 5.6.0 and 5.6.1 can compromise sshd via liblzma."
+          }
+        ],
+        "metrics": {
+          "cvssMetricV31": [
+            {
+              "source": "seed",
+              "type": "Primary",
+              "cvssData": {
+                "version": "3.1",
+                "baseScore": 10.0,
+                "baseSeverity": "CRITICAL"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "cve": {
+        "id": "CVE-2021-44228",
+        "sourceIdentifier": "seed",
+        "published": "2021-12-10T00:00:00.000",
+        "lastModified": "2021-12-14T00:00:00.000",
+        "vulnStatus": "Analyzed",
+        "descriptions": [
+          {
+            "lang": "en",
+            "value": "Apache Log4j2 JNDI features do not protect against attacker-controlled LDAP and other JNDI related endpoints."
+          }
+        ],
+        "metrics": {
+          "cvssMetricV31": [
+            {
+              "source": "seed",
+              "type": "Primary",
+              "cvssData": {
+                "version": "3.1",
+                "baseScore": 10.0,
+                "baseSeverity": "CRITICAL"
+              }
+            }
+          ]
+        }
+      }
+    }
+  ]
+}

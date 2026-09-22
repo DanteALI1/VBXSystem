@@ -1,13 +1,16 @@
+import { notFound } from "next/navigation";
+import { VulnerabilityDetailView } from "@/components/vulnerabilities/vulnerability-detail";
+import { requireSession } from "@/lib/auth/session";
+import { getVulnerabilityById } from "@/lib/vulnerabilities";
+
 export default async function VulnerabilityDetailPage({
   params,
 }: {
   params: Promise<{ id: string }>;
 }) {
+  await requireSession();
   const { id } = await params;
-  return (
-    <div className="space-y-2">
-      <h1 className="text-2xl font-semibold">Vulnerability</h1>
-      <p className="text-muted-foreground text-sm">id: {id}</p>
-    </div>
-  );
+  const item = await getVulnerabilityById(id);
+  if (!item) notFound();
+  return <VulnerabilityDetailView item={item} />;
 }

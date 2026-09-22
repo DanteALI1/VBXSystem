@@ -2,11 +2,14 @@
 
 ## Стек
 
-- Better Auth (`lib/auth.ts`), email/password enabled.
+- Better Auth (`lib/auth.ts`), email/password, `disableSignUp: true`.
+- Client: `lib/auth-client.ts` (`signIn` / `signOut` / `useSession`).
+- Route: `app/api/auth/[...all]/route.ts`.
+- Proxy: `/app/**` requires session cookie → else `/login`; `/login` redirects to `/app` when cookie present (`proxy.ts`, Next.js 16).
 - Таблицы: `users`, `session`, `account`, `verification`.
-- Роль приложения: `users.role` ∈ `admin` | `analyst` | `viewer` (default `viewer`).
+- Роль: `users.role` ∈ `admin` | `analyst` | `viewer` (default `viewer`), exposed via Better Auth `user.additionalFields`.
 
-Wave 0: auth UI / session middleware **не подключены** (placeholder `/login`). См. [ADR-002](../decisions/ADR-002-auth.md).
+Helpers: `lib/auth/roles.ts` — `requireRole`, `canTriggerSync`, `canManageAllowlist`, `canChangeFindingStatus`, `canCreateScan`.
 
 ## Матрица прав (контракт MVP)
 
@@ -14,20 +17,19 @@ Wave 0: auth UI / session middleware **не подключены** (placeholder 
 |----------|--------|---------|-------|
 | Просмотр dashboard, vulns, assets, findings, scans | ✓ | ✓ | ✓ |
 | CRUD assets | ✗ | ✓ | ✓ |
-| CRUD allowlist | ✗ | ✓ | ✓ |
-| Смена статуса finding | ✗ | ✓ | ✓ |
-| Запуск scan (enqueue) | ✗ | ✓ | ✓ |
-| Запуск NVD/BDU sync (enqueue) | ✗ | ✓ | ✓ |
+| CRUD allowlist (`canManageAllowlist`) | ✗ | ✗ | ✓ |
+| Смена статуса finding (`canChangeFindingStatus`) | ✗ | ✓ | ✓ |
+| Запуск scan (`canCreateScan`) | ✗ | ✓ | ✓ |
+| Запуск NVD/BDU sync (`canTriggerSync`) | ✗ | ✗ | ✓ |
 | Управление пользователями / ролями | ✗ | ✗ | ✓ |
-| Удаление критичных сущностей (policy) | ✗ | ограничено | ✓ |
-| Bootstrap / смена AUTH | — | — | ops |
+| Bootstrap admin | — | — | ops |
 
 Viewer **не может** триггерить sync/scan — TC-002.
 
 ## Bootstrap
 
-Первый admin: [bootstrap-admin.md](../setup/bootstrap-admin.md).
+`npm run bootstrap:admin` — см. [bootstrap-admin.md](../setup/bootstrap-admin.md).
 
 ## Будущее
 
-LDAP / OIDC — после MVP email/password (ADR-002). Не реализовывать в Wave 0.
+LDAP / OIDC — после MVP email/password (ADR-002).
