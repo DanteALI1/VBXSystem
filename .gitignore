@@ -48,3 +48,5 @@ next-env.d.ts
 !/storage/reports/.gitkeep
 /storage/bdu/*
 !/storage/bdu/.gitkeep
+dump.rdb
+*.rdb
