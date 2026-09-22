@@ -1,40 +1,39 @@
 # TC-009 Assets CRUD
 
-Status: draft  
-Type: e2e|integration  
+Status: automated  
+Type: integration  
 Priority: P0  
 Module: assets
 
 ## Preconditions
 
-- Пользователь analyst или admin.
-- Viewer для негативного кейса.
+- Mock sessions: analyst / admin / viewer.
+- Postgres.
 
 ## Steps
 
-1. Create asset: hostname + ip (+ description).
-2. Read list — новая запись видна; индексы/фильтр по ip/hostname (если есть).
-3. Update description/hostname.
-4. Delete (admin) — cascade: связанные services/findings удаляются.
-5. Viewer: create → запрет.
+1. Create asset: hostname + ip (+ description) via lib + API.
+2. Read list — новая запись видна.
+3. Update description.
+4. Delete — cascade services/findings.
+5. Viewer create → 403; empty hostname/ip → 400.
 
 ## Expected
 
 - Данные соответствуют таблице `assets`.
-- Валидация: пустой ip/hostname → 400.
-- RBAC соблюдён.
+- Валидация и RBAC соблюдены.
 
 ## Automation
 
-TBD: `tests/e2e/assets.spec.ts` / `tests/integration/assets-crud.test.ts`.
+`tests/integration/assets-crud.test.ts`
 
 ## Last run
 
-datetime: —  
-command: —  
-result: —  
-evidence: —
+datetime: 2026-09-22 23:33 UTC  
+command: `npm run test:integration`  
+result: PASS  
+evidence: 5 tests, exit 0
 
 ## Notes
 
-UI Wave 0 placeholder `/app/assets`.
+UI e2e deferred; API + lib cover CRUD contract.

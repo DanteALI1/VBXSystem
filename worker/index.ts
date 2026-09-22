@@ -1,6 +1,8 @@
-import { Queue } from "bullmq";
-import IORedis from "ioredis";
 import pino from "pino";
+import { createBduSyncWorker } from "./processors/bdu";
+import { createNvdSyncWorker } from "./processors/nvd";
+import { createScanStubWorker } from "./processors/scan";
+import { getRedisUrl } from "@/lib/sync/queues";
 
 const logger = pino({
   name: "worker",
@@ -10,36 +12,38 @@ const logger = pino({
       : undefined,
 });
 
-const redisUrl = process.env.REDIS_URL ?? "redis://localhost:6379";
+const redisUrl = getRedisUrl();
 
-const connection = new IORedis(redisUrl, {
-  maxRetriesPerRequest: null,
-});
-
-const queueNames = ["nvd-sync", "bdu-sync", "scan"] as const;
-
-const queues = queueNames.map(
-  (name) =>
-    new Queue(name, {
-      connection,
-    }),
-);
+const nvd = createNvdSyncWorker(logger);
+const bdu = createBduSyncWorker(logger);
+const scan = createScanStubWorker(logger);
 
 logger.info(
-  { queues: queueNames, redisUrl },
-  "worker ready (Wave 0 stub — no processors registered)",
+  {
+    queues: ["nvd-sync", "bdu-sync", "scan"],
+    redisUrl,
+  },
+  "worker ready — processors registered",
 );
 
-async function shutdown() {
-  logger.info("shutting down worker");
-  await Promise.all(queues.map((q) => q.close()));
-  await connection.quit();
+async function shutdown(signal: string) {
+  logger.info({ signal }, "shutting down worker");
+  await Promise.all([
+    nvd.worker.close(),
+    bdu.worker.close(),
+    scan.worker.close(),
+  ]);
+  await Promise.all([
+    nvd.connection.quit(),
+    bdu.connection.quit(),
+    scan.connection.quit(),
+  ]);
   process.exit(0);
 }
 
 process.on("SIGINT", () => {
-  void shutdown();
+  void shutdown("SIGINT");
 });
 process.on("SIGTERM", () => {
-  void shutdown();
+  void shutdown("SIGTERM");
 });

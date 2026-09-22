@@ -1,0 +1,67 @@
+{
+  "resultsPerPage": 2,
+  "startIndex": 0,
+  "totalResults": 2,
+  "format": "NVD_CVE",
+  "version": "2.0",
+  "timestamp": "2024-04-02T12:00:00.000",
+  "vulnerabilities": [
+    {
+      "cve": {
+        "id": "CVE-2099-0001",
+        "sourceIdentifier": "fixture@test.local",
+        "published": "2099-01-15T00:00:00.000",
+        "lastModified": "2099-01-20T12:00:00.000",
+        "vulnStatus": "Analyzed",
+        "descriptions": [
+          {
+            "lang": "en",
+            "value": "Fixture CVE for NVD sync upsert tests (original description)."
+          }
+        ],
+        "metrics": {
+          "cvssMetricV31": [
+            {
+              "source": "fixture@test.local",
+              "type": "Primary",
+              "cvssData": {
+                "version": "3.1",
+                "baseScore": 9.8,
+                "baseSeverity": "CRITICAL",
+                "vectorString": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "cve": {
+        "id": "CVE-2099-0002",
+        "sourceIdentifier": "fixture@test.local",
+        "published": "2099-02-01T00:00:00.000",
+        "lastModified": "2099-02-05T00:00:00.000",
+        "vulnStatus": "Analyzed",
+        "descriptions": [
+          {
+            "lang": "en",
+            "value": "Second fixture CVE used for batch sync coverage."
+          }
+        ],
+        "metrics": {
+          "cvssMetricV31": [
+            {
+              "source": "fixture@test.local",
+              "type": "Primary",
+              "cvssData": {
+                "version": "3.1",
+                "baseScore": 5.3,
+                "baseSeverity": "MEDIUM"
+              }
+            }
+          ]
+        }
+      }
+    }
+  ]
+}

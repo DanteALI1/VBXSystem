@@ -10,14 +10,14 @@
 | A2 | Страница логина `/login` | `images/02-login.png` | captured | 1 |
 | B1 | Форма логина (до submit) | `images/03-login-form.png` | captured | 1 |
 | B2 | Dashboard после логина | `images/04-dashboard.png` | captured | 1 |
-| B3 | Конфиг/env UI или документированный конфиг без секретов | `images/05-config-env.png` | pending | 2 |
-| C1 | Sync settings до запуска | `images/06-sync-before.png` | pending | 2 |
-| C2 | Sync state/job после enqueue | `images/07-sync-after.png` | pending | 2 |
+| B3 | Конфиг/env UI или документированный конфиг без секретов | `images/05-config-env.png` | captured | 2 — Sync Configuration (`NVD_SYNC_DAYS`/`NVD_SYNC_MODE` + fixture); secrets not shown |
+| C1 | Sync settings до запуска | `images/06-sync-before.png` | captured | 2 |
+| C2 | Sync state/job после enqueue | `images/07-sync-after.png` | captured | 2 — fixture sync → succeeded |
 | C3 | Таблица уязвимостей | `images/08-vulnerabilities-table.png` | captured | 1 |
 | C4 | Карточка уязвимости | `images/09-vulnerability-card.png` | captured | 1 |
-| D1 | Assets list/create | `images/10-assets.png` | pending | 2 |
-| D2 | Asset detail | `images/11-asset-detail.png` | pending | 2 |
-| D3 | Allowlist entry | `images/12-allowlist.png` | pending | 2 |
+| D1 | Assets list/create | `images/10-assets.png` | captured | 2 |
+| D2 | Asset detail | `images/11-asset-detail.png` | captured | 2 |
+| D3 | Allowlist entry | `images/12-allowlist.png` | captured | 2 |
 | E1 | Create scan job | `images/13-scan-create.png` | pending | 3 |
 | E2 | Job status | `images/14-scan-status.png` | pending | 3 |
 | E3 | Findings list | `images/15-findings.png` | pending | 3 |
@@ -32,7 +32,7 @@ npm run test:screenshots
 ```
 
 Скрипт: [`scripts/capture-setup-screenshots.ts`](../../scripts/capture-setup-screenshots.ts).  
-Wave 1: A2, B1, B2, C3, C4 (+ optional F2). Env: `APP_URL`, `BOOTSTRAP_ADMIN_*`. Auth session reused via `playwright/.auth/admin.json`.
+Wave 1+2: A2, B1, B2, B3, C1–C4, D1–D3, F2. Env: `APP_URL`, `BOOTSTRAP_ADMIN_*`. Auth session reused via `playwright/.auth/admin.json`. Для C2 нужен `npm run worker`.
 
 ## Правила
 

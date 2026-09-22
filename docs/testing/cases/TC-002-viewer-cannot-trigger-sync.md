@@ -1,39 +1,41 @@
 # TC-002 Viewer cannot trigger sync
 
-Status: draft  
-Type: e2e|integration  
+Status: automated  
+Type: integration  
 Priority: P0  
 Module: auth-roles / sync
 
 ## Preconditions
 
-- Пользователи: `viewer@…` (role=viewer), `analyst@…` или admin.
-- Endpoints sync: `POST /api/sync/nvd`, `POST /api/sync/bdu` (план).
+- Mock session via `tests/helpers/session.ts` (viewer / analyst / admin).
+- Endpoints: `POST /api/sync/nvd`, `POST /api/sync/bdu` (`canTriggerSync` = **admin only**).
 
 ## Steps
 
-1. Войти как viewer.
-2. Открыть `/app/settings/sync` (или вызвать API sync).
-3. Попытка запустить NVD sync и BDU sync.
-4. Войти как analyst/admin и повторить запуск — enqueue успешен.
+1. Call sync APIs with mocked `viewer` session.
+2. Call sync APIs with mocked `analyst` session.
+3. Call sync APIs with mocked `admin` session (positive control).
 
 ## Expected
 
-- Viewer: UI control disabled **или** API `403`; job в Redis/БД не создаётся.
-- Analyst/admin: `202`, запись в очереди `nvd-sync`/`bdu-sync`, `sync_states.status` → `running` (когда worker готов).
+- Viewer: API `403`; no successful enqueue from that call.
+- Analyst: API `403` (matches [auth-roles.md](../../features/auth-roles.md) — sync is admin-only, not analyst).
+- Admin: `202` + `jobId`.
 
 ## Automation
 
-E2E: `tests/e2e/` TBD.  
-Integration: API + session mock TBD.
+Integration: `tests/integration/sync-enqueue.test.ts` (describe `TC-002`).  
+Session helper: `tests/helpers/session.ts`.  
+E2E with real viewer user: deferred (signup disabled; mock session covers RBAC).
 
 ## Last run
 
-datetime: —  
-command: —  
-result: —  
-evidence: —
+datetime: 2026-09-22 23:33 UTC  
+command: `npm run test:integration`  
+result: PASS  
+evidence: 9 tests in sync-enqueue (incl. 3 TC-002), suite exit 0
 
 ## Notes
 
-Матрица: [auth-roles.md](../../features/auth-roles.md).
+Матрица: [auth-roles.md](../../features/auth-roles.md).  
+TC draft mentioned analyst success — **corrected** to admin-only per `canTriggerSync`.

@@ -1,14 +1,14 @@
 # TC-005 NVD upsert idempotent
 
-Status: draft  
-Type: unit|integration  
+Status: automated  
+Type: unit  
 Priority: P0  
 Module: nvd-sync / vulnerabilities
 
 ## Preconditions
 
-- Фикстура `tests/fixtures/nvd/cve-sample.json` (после добавления).
-- Доступ к тестовой БД для integration **или** in-memory upsert helper для unit.
+- Фикстура `tests/fixtures/nvd-fragment.json`.
+- Postgres доступна (`DATABASE_URL`).
 
 ## Steps
 
@@ -18,21 +18,20 @@ Module: nvd-sync / vulnerabilities
 
 ## Expected
 
-- После двух прогонов: **ровно одна** запись по `cve_id` (unique index `vulnerabilities_cve_id_uidx`).
+- После двух прогонов: **ровно одна** запись по `cve_id`.
 - Поля обновлены (не дубликат).
-- Source row обновлён/`synced_at` свежий.
+- Source row обновлён / `synced_at` свежий.
 
 ## Automation
 
-TBD: `tests/integration/nvd-upsert.test.ts` или unit parser+repo.  
-Пока **нет** файла automation.
+`tests/unit/nvd-upsert.test.ts`
 
 ## Last run
 
-datetime: —  
-command: —  
-result: —  
-evidence: —
+datetime: 2026-09-22 23:33 UTC  
+command: `npm run test:unit`  
+result: PASS  
+evidence: 1 test, exit 0 (unit suite 20 tests)
 
 ## Notes
 

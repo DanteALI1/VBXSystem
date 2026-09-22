@@ -18,7 +18,9 @@
     "db:push": "drizzle-kit push",
     "bootstrap:admin": "tsx --env-file=.env scripts/bootstrap-admin.ts",
     "seed:vulns": "tsx --env-file=.env scripts/seed-vulnerabilities.ts",
-    "worker": "tsx worker/index.ts"
+    "seed:assets": "tsx --env-file=.env scripts/seed-assets.ts",
+    "worker": "tsx worker/index.ts",
+    "smoke:sync": "tsx --env-file=.env scripts/smoke-sync-fixture.ts"
   },
   "dependencies": {
     "@base-ui/react": "^1.8.0",

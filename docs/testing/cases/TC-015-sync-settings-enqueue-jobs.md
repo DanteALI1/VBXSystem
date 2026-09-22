@@ -1,6 +1,6 @@
 # TC-015 Sync settings enqueue jobs
 
-Status: draft  
+Status: automated  
 Type: integration  
 Priority: P0  
 Module: sync / workers
@@ -8,34 +8,35 @@ Module: sync / workers
 ## Preconditions
 
 - Redis доступен.
-- Analyst/admin сессия.
-- API sync endpoints (план).
+- Mock admin session.
+- API: `GET /api/sync/status`, `POST /api/sync/nvd`, `POST /api/sync/bdu`.
 
 ## Steps
 
-1. GET sync state — строки `sync_states` для `nvd` и `bdu` (создать если нет).
-2. POST `/api/sync/nvd` → ответ 202 + job id.
-3. Проверить наличие job в очереди BullMQ `nvd-sync` (или запись статуса `running` после pickup).
-4. POST `/api/sync/bdu` аналогично для `bdu-sync`.
-5. Viewer → 403 (связь с TC-002).
+1. GET sync status — `nvd` и `bdu` states (ensure created).
+2. POST `/api/sync/nvd` `{ mode: "fixture" }` → 202 + job id; job in BullMQ `nvd-sync`.
+3. POST `/api/sync/bdu` аналогично → `bdu-sync`.
+4. While `ensureSyncState` reports `running` → 409.
+5. Viewer → 403 (TC-002).
 
 ## Expected
 
 - App **не** выполняет download inline; только enqueue.
-- Дублирующий enqueue во время `running` — политика: reject или coalesce (зафиксировать в реализации).
-- После stub-worker без processor job остаётся waiting — допустимо до Wave sync.
+- Дублирующий enqueue во время `running` → **409**.
+- Job может быть waiting/active/completed если worker жив — наличие job по id достаточно.
 
 ## Automation
 
-TBD: `tests/integration/sync-enqueue.test.ts`.
+`tests/integration/sync-enqueue.test.ts`
 
 ## Last run
 
-datetime: —  
-command: —  
-result: —  
-evidence: —
+datetime: 2026-09-22 23:33 UTC  
+command: `npm run test:integration`  
+result: PASS  
+evidence: 9 tests (TC-015 + TC-002), exit 0
 
 ## Notes
 
-Очереди объявлены в `worker/index.ts`.
+Очереди: `worker/index.ts` / `lib/sync/types.ts`.  
+Enqueue требует **admin** (`canTriggerSync`).

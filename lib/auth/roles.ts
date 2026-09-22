@@ -49,6 +49,11 @@ export function canManageAllowlist(role: AppRole): boolean {
   return role === "admin";
 }
 
+/** Assets CRUD write (create/update/delete): analyst or admin. Read: any authenticated role. */
+export function canManageAssets(role: AppRole): boolean {
+  return role === "analyst" || role === "admin";
+}
+
 export function canChangeFindingStatus(role: AppRole): boolean {
   return role === "analyst" || role === "admin";
 }

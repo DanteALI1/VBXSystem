@@ -1,42 +1,40 @@
 # TC-010 Allowlist CRUD
 
-Status: draft  
-Type: e2e|integration  
+Status: automated  
+Type: integration  
 Priority: P0  
 Module: allowlist
 
 ## Preconditions
 
-- Analyst/admin сессия.
-- Страница `/app/settings/allowlist`.
+- Mock admin / analyst / viewer sessions.
+- Match logic also covered by unit `tests/unit/allowlist.test.ts`.
 
 ## Steps
 
-1. Create правило `type=cidr`, pattern `10.0.0.0/8`, enabled=true.
-2. Create правило `type=url`, pattern `https://app.example.com/api`.
-3. List — оба видны.
-4. Disable cidr (`enabled=false`) → update.
-5. Delete url-правило.
-6. Viewer: мутации запрещены.
+1. Create `cidr` + `url` rules (lib + API).
+2. List — оба видны.
+3. Disable cidr → update.
+4. Delete url-правило.
+5. Viewer/analyst mutate → 403; invalid CIDR → 400.
 
 ## Expected
 
-- Записи в `allowlist_targets` соответствуют полям схемы.
-- Невалидный CIDR/пустой pattern → 400.
+- Записи в `allowlist_targets` соответствуют схеме.
 - Disabled правило не участвует в `isTargetAllowed` (см. TC-011).
 
 ## Automation
 
-TBD e2e/integration.  
-Логика match уже покрыта unit: `tests/unit/allowlist.test.ts`.
+`tests/integration/allowlist-crud.test.ts`  
+Unit match: `tests/unit/allowlist.test.ts`
 
 ## Last run
 
-datetime: —  
-command: —  
-result: —  
-evidence: —
+datetime: 2026-09-22 23:33 UTC  
+command: `npm run test:integration`  
+result: PASS  
+evidence: 5 tests, exit 0
 
 ## Notes
 
-Wave 0 UI placeholder.
+Mutations admin-only per `canManageAllowlist`.

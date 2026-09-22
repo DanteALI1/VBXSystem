@@ -23,6 +23,7 @@
 - [Активы](features/assets.md)
 - [Сканы](features/scans.md)
 - [Findings](features/findings.md)
+- [Sync NVD/BDU](features/sync.md)
 - [Auth и роли](features/auth-roles.md)
 
 ### API / Ops / ADR
@@ -38,6 +39,8 @@
 
 - [PROGRESS](journal/PROGRESS.md)
 - [WAVE-00 checklist](journal/WAVE-00-CHECKLIST.md)
+- [WAVE-01 checklist](journal/WAVE-01-CHECKLIST.md)
+- [WAVE-02 checklist](journal/WAVE-02-CHECKLIST.md)
 
 ### Тестирование
 

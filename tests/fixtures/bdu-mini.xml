@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<vulnerabilities>
+  <vul>
+    <identifier>BDU:2099-00001</identifier>
+    <name>Fixture BDU vulnerability with CVE link</name>
+    <description>Mini BDU XML fixture linked to CVE-2099-9101 for parse and upsert tests.</description>
+    <severity>critical</severity>
+    <cvss>
+      <base>9.8</base>
+    </cvss>
+    <cve>
+      <id>CVE-2099-9101</id>
+    </cve>
+    <vulnerable_software>
+      <soft>
+        <vendor>ExampleVendor</vendor>
+        <product>ExampleProduct</product>
+      </soft>
+    </vulnerable_software>
+    <status>actual</status>
+  </vul>
+  <vul>
+    <identifier>BDU:2099-00002</identifier>
+    <name>Fixture BDU vulnerability without CVE</name>
+    <description>BDU-only fixture record used to assert null cveId handling.</description>
+    <severity>medium</severity>
+    <cvss>
+      <base>5.0</base>
+    </cvss>
+    <vulnerable_software>
+      <soft>
+        <vendor>OtherVendor</vendor>
+        <product>OtherProduct</product>
+      </soft>
+    </vulnerable_software>
+    <status>actual</status>
+  </vul>
+  <vul>
+    <!-- invalid: missing identifier — parser should skip -->
+    <name>Broken node</name>
+  </vul>
+</vulnerabilities>

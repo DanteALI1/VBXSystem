@@ -1,5 +1,27 @@
 # PROGRESS
 
+## 2026-09-22 23:40 — Волна 2 / Screenshots B3–D3
+
+### Цель
+
+Захват walkthrough кадров Wave 2 (B3, C1, C2, D1–D3) + регенерация Wave 1.
+
+### Что сделано
+
+- Sync panel: секция Configuration (`NVD_SYNC_DAYS` / `NVD_SYNC_MODE`, без секретов) + testids
+- `scripts/capture-setup-screenshots.ts` расширен на Wave 2 (fixture sync wait, seed assets, allowlist API seed)
+- PNGs в `docs/setup-walkthrough/images/`; статусы README → captured
+
+### Как проверял
+
+```bash
+npm run test:screenshots   # exit 0 — Wave 1+2 frames
+```
+
+### Результат
+
+Screenshots Wave 2 captured. (Не коммитил — по запросу subagent.)
+
 ## 2026-09-22 23:21 — Волна 1 / Auth + shell + vulns
 
 ### Цель

@@ -2,29 +2,24 @@
 
 Каталог для сырых ответов/отчётов внешних систем. Бинарные сканеры в CI не обязательны — парсеры кормятся файлами отсюда.
 
-## Планируемая структура
+## Структура
 
 ```
 tests/fixtures/
-  README.md                 ← этот файл
-  nvd/
-    cve-sample.json         # фрагмент NVD API 2.0 (1–3 CVE)
-    cve-upsert-dup.json     # повтор того же CVE для идемпотентности
-  bdu/
-    vulxml-sample.xml       # урезанный BDU XML с bdu_id + cve
-    vulxml-no-cve.xml       # запись без CVE link
-  nmap/
-    scan-sample.xml         # nmap XML → ports/services
-  nuclei/
-    findings-sample.jsonl   # nuclei JSONL → findings + CVE
+  README.md
+  nvd-fragment.json         # NVD API 2.0 fragment (fixture sync + TC-005)
+  nvd-sample.json           # seed-aligned sample CVEs
+  bdu-mini.xml              # mini BDU XML with/without CVE (TC-007/008)
+  nmap/                     # (planned) nmap XML
+  nuclei/                   # (planned) nuclei JSONL
 ```
 
 ## Использование
 
 | Фикстура | TC |
 |----------|-----|
-| NVD JSON | TC-005, TC-006 (mock HTTP) |
-| BDU XML | TC-007, TC-008 |
+| `nvd-fragment.json` | TC-005, fixture `nvd-sync` |
+| `bdu-mini.xml` | TC-007, TC-008, fixture `bdu-sync` |
 | nmap XML | TC-012 |
 | nuclei JSONL | TC-013 |
 
@@ -32,4 +27,3 @@ tests/fixtures/
 
 - Не класть полные дампы production и персональные данные.
 - Минимальный объём, достаточный для assert полей схемы.
-- Wave 0: каталог пустой (`.gitkeep`); файлы добавить при реализации парсеров.
