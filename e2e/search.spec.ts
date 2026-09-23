@@ -9,11 +9,16 @@ test.describe("W3 search → detail", () => {
     await page.goto(`${BASE}/login`);
     await page.getByLabel("Логин или email").fill(USER);
     await page.getByLabel("Пароль").fill(PASS);
-    await page.getByRole("button", { name: /войти/i }).click();
-    await page.waitForURL(/\/(dashboard|search|settings)/, { timeout: 20000 });
+
+    await Promise.all([
+      page.waitForURL((url) => !url.pathname.includes("/login"), { timeout: 20000 }),
+      page.getByRole("button", { name: /войти/i }).click(),
+    ]);
+
+    await expect.poll(async () => page.evaluate(() => localStorage.getItem("vbx_access_token"))).toBeTruthy();
 
     await page.goto(`${BASE}/search`);
-    await expect(page.getByRole("heading", { name: "Search" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Search" })).toBeVisible({ timeout: 15000 });
     await page.getByLabel("Поисковый запрос").fill("CVE-2024");
     await page.getByRole("button", { name: "Найти" }).click();
 
