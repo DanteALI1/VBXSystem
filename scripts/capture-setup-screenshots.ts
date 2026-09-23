@@ -1,5 +1,5 @@
 /**
- * Setup walkthrough screenshot capture (Wave 1 + Wave 2).
+ * Setup walkthrough screenshot capture (Wave 1 + Wave 2 + Wave 3).
  *
  * Env:
  *   APP_URL                  (default http://localhost:3000)
@@ -9,8 +9,10 @@
  * Reuses playwright/.auth/admin.json when present to avoid Better Auth
  * /sign-in rate-limit (3 / 10s). Falls back to a single login with retries.
  *
- * Wave 2 expects a running worker (`npm run worker`) so fixture sync can
- * reach succeeded for frame C2.
+ * Wave 2/3 expect a running worker (`npm run worker`) so fixture sync/scan
+ * can reach succeeded for frames C2 and E2.
+ *
+ * A1 (docker compose up) stays blocked — no docker in cloud-agent.
  */
 import { chromium, type Browser, type Page } from "@playwright/test";
 import { execFile } from "node:child_process";
@@ -36,8 +38,12 @@ const AUTH_FILE = path.join(process.cwd(), "playwright/.auth/admin.json");
 /** Seeded vuln with both CVE and BDU (see tests/e2e/vulnerability-detail.spec.ts). */
 const BOTH_CVE_BDU_ID = "949dc591-2d25-47a6-a285-43f62e4cb598";
 
+const ALLOWLIST_CIDR = "10.0.0.0/8";
+const SCAN_TARGET = "10.0.1.10";
+
 const MIN_BYTES = 10 * 1024;
 const SYNC_WAIT_MS = 90_000;
+const SCAN_WAIT_MS = 90_000;
 
 type FrameSpec = {
   id: string;
@@ -173,23 +179,45 @@ async function ensureAssetsSeeded(page: Page) {
   });
 }
 
+type AllowlistItem = {
+  id: string;
+  pattern: string;
+  type: string;
+  enabled: boolean;
+};
+
 async function ensureAllowlistEntry(page: Page) {
   const listRes = await page.request.get(`${APP_URL}/api/allowlist`);
   if (!listRes.ok()) throw new Error(`allowlist list HTTP ${listRes.status()}`);
   const list = (await listRes.json()) as {
-    items?: unknown[];
+    items?: AllowlistItem[];
     total?: number;
   };
-  const total = list.total ?? list.items?.length ?? 0;
-  if (total > 0) {
-    console.log(`  allowlist already has ${total} entr${total === 1 ? "y" : "ies"}`);
+  const items = list.items ?? [];
+  const match = items.find(
+    (i) => i.type === "cidr" && i.pattern === ALLOWLIST_CIDR,
+  );
+  if (match) {
+    if (!match.enabled) {
+      console.log(`  enabling allowlist ${ALLOWLIST_CIDR}`);
+      const patch = await page.request.patch(
+        `${APP_URL}/api/allowlist/${match.id}`,
+        { data: { enabled: true } },
+      );
+      if (!patch.ok()) {
+        const text = await patch.text();
+        throw new Error(`allowlist enable HTTP ${patch.status()}: ${text}`);
+      }
+    } else {
+      console.log(`  allowlist has enabled ${ALLOWLIST_CIDR}`);
+    }
     return;
   }
-  console.log("  allowlist empty — creating CIDR entry via API");
+  console.log(`  creating allowlist CIDR ${ALLOWLIST_CIDR} via API`);
   const create = await page.request.post(`${APP_URL}/api/allowlist`, {
     data: {
       type: "cidr",
-      pattern: "10.0.0.0/8",
+      pattern: ALLOWLIST_CIDR,
       enabled: true,
       description: "Lab private network (walkthrough seed)",
     },
@@ -198,6 +226,71 @@ async function ensureAllowlistEntry(page: Page) {
     const text = await create.text();
     throw new Error(`allowlist create HTTP ${create.status()}: ${text}`);
   }
+}
+
+async function waitForScanSucceeded(page: Page, scanId: string) {
+  const deadline = Date.now() + SCAN_WAIT_MS;
+  while (Date.now() < deadline) {
+    const res = await page.request.get(`${APP_URL}/api/scans/${scanId}`);
+    if (!res.ok()) {
+      throw new Error(`scan status HTTP ${res.status()}`);
+    }
+    const body = (await res.json()) as {
+      status: string;
+      error?: string | null;
+    };
+    if (body.status === "succeeded") return;
+    if (body.status === "failed") {
+      throw new Error(
+        `scan ${scanId} failed: ${body.error ?? "unknown error"}`,
+      );
+    }
+    await page.waitForTimeout(1_500);
+  }
+  throw new Error(`timed out waiting for scan ${scanId} succeeded`);
+}
+
+/** Create nmap fixture scan via API and wait until worker marks succeeded. */
+async function ensureFixtureScanSucceeded(page: Page): Promise<string> {
+  const listRes = await page.request.get(
+    `${APP_URL}/api/scans?page=1&pageSize=50`,
+  );
+  if (!listRes.ok()) throw new Error(`scans list HTTP ${listRes.status()}`);
+  const list = (await listRes.json()) as {
+    items?: Array<{
+      id: string;
+      type: string;
+      target: string;
+      status: string;
+    }>;
+  };
+  const existing = (list.items ?? []).find(
+    (s) =>
+      s.type === "nmap" &&
+      s.target === SCAN_TARGET &&
+      s.status === "succeeded",
+  );
+  if (existing) {
+    console.log(`  reusing succeeded nmap scan ${existing.id}`);
+    return existing.id;
+  }
+
+  console.log("  creating nmap fixture scan via API…");
+  const create = await page.request.post(`${APP_URL}/api/scans`, {
+    data: {
+      type: "nmap",
+      target: SCAN_TARGET,
+      options: { fixture: true },
+    },
+  });
+  if (!create.ok()) {
+    const text = await create.text();
+    throw new Error(`scan create HTTP ${create.status()}: ${text}`);
+  }
+  const created = (await create.json()) as { id: string; status: string };
+  console.log(`  waiting for scan ${created.id} → succeeded…`);
+  await waitForScanSucceeded(page, created.id);
+  return created.id;
 }
 
 const publicFrames: FrameSpec[] = [
@@ -351,6 +444,126 @@ const authedFrames: FrameSpec[] = [
     },
   },
   {
+    id: "E1",
+    file: "13-scan-create.png",
+    capture: async (page) => {
+      await ensureAllowlistEntry(page);
+      await page.goto(`${APP_URL}/app/scans`, { waitUntil: "networkidle" });
+      await page.getByTestId("scans-table").waitFor({ state: "visible" });
+      await page.getByTestId("scans-create").click();
+      await page
+        .getByTestId("create-scan-dialog")
+        .waitFor({ state: "visible" });
+      await page.getByTestId("scan-type").selectOption("nmap");
+      await page.getByTestId("scan-target").fill(SCAN_TARGET);
+      const fixture = page.getByTestId("scan-fixture");
+      if (!(await fixture.isChecked())) {
+        await fixture.check();
+      }
+      await page.getByTestId("scan-submit").waitFor({ state: "visible" });
+      await shot(page, "13-scan-create.png");
+      // Close dialog without submitting — E2 uses API enqueue path
+      await page.keyboard.press("Escape");
+      await page
+        .getByTestId("create-scan-dialog")
+        .waitFor({ state: "hidden" })
+        .catch(() => undefined);
+    },
+  },
+  {
+    id: "E2",
+    file: "14-scan-status.png",
+    capture: async (page) => {
+      await ensureAllowlistEntry(page);
+      await ensureFixtureScanSucceeded(page);
+      await page.goto(`${APP_URL}/app/scans`, { waitUntil: "networkidle" });
+      await page.getByTestId("scans-table").waitFor({ state: "visible" });
+      await page.getByTestId("scans-row").first().waitFor({ state: "visible" });
+      // Prefer succeeded; running is acceptable fallback while worker catches up
+      const statusBadge = page
+        .getByTestId("scans-row")
+        .filter({ hasText: /succeeded|running/i })
+        .first();
+      await statusBadge.waitFor({ state: "visible", timeout: 15_000 });
+      await shot(page, "14-scan-status.png");
+    },
+  },
+  {
+    id: "E3",
+    file: "15-findings.png",
+    capture: async (page) => {
+      await ensureAllowlistEntry(page);
+      await ensureFixtureScanSucceeded(page);
+      await page.goto(`${APP_URL}/app/findings`, { waitUntil: "networkidle" });
+      await page.getByTestId("findings-table").waitFor({ state: "visible" });
+      await page
+        .getByTestId("finding-row")
+        .first()
+        .waitFor({ state: "visible", timeout: 20_000 });
+      await shot(page, "15-findings.png");
+    },
+  },
+  {
+    id: "E4",
+    file: "16-finding-status.png",
+    capture: async (page) => {
+      await ensureAllowlistEntry(page);
+      await ensureFixtureScanSucceeded(page);
+      await page.goto(`${APP_URL}/app/findings`, { waitUntil: "networkidle" });
+      await page.getByTestId("findings-table").waitFor({ state: "visible" });
+      const row = page.getByTestId("finding-row").first();
+      await row.waitFor({ state: "visible", timeout: 20_000 });
+      const select = row.getByTestId("finding-status-select");
+      await select.waitFor({ state: "visible" });
+      // Prefer changing open → fixed; if already non-open, open the select UI
+      const current =
+        ((await select.textContent()) ?? "").trim().toLowerCase() || "open";
+      await select.click();
+      if (/^open\b/.test(current) || current === "open") {
+        const fixedOpt = page.getByTestId("finding-status-option-fixed");
+        await fixedOpt.waitFor({ state: "visible", timeout: 5_000 });
+        await fixedOpt.click();
+        await page
+          .getByText(/status\s*→\s*fixed/i)
+          .waitFor({ state: "visible", timeout: 10_000 })
+          .catch(() => undefined);
+        await page.waitForTimeout(500);
+      } else {
+        // Status select visible with options — enough for E4
+        await page
+          .getByTestId("finding-status-option-open")
+          .waitFor({ state: "visible", timeout: 5_000 })
+          .catch(() => undefined);
+      }
+      await shot(page, "16-finding-status.png");
+      // Dismiss any open select overlay
+      await page.keyboard.press("Escape").catch(() => undefined);
+    },
+  },
+  {
+    id: "F1",
+    file: "17-dashboard-totals.png",
+    capture: async (page) => {
+      // Ensure inventory/findings exist so totals are non-zero when possible
+      await ensureAssetsSeeded(page);
+      await ensureAllowlistEntry(page);
+      await ensureFixtureScanSucceeded(page);
+      await page.goto(`${APP_URL}/app`, { waitUntil: "networkidle" });
+      await page
+        .getByRole("heading", { name: /dashboard/i })
+        .waitFor({ state: "visible", timeout: 15_000 });
+      const main = page.getByRole("main");
+      await main
+        .getByText("Open findings", { exact: true })
+        .waitFor({ state: "visible", timeout: 15_000 });
+      await main
+        .locator(".tabular-nums")
+        .first()
+        .waitFor({ state: "visible", timeout: 15_000 });
+      await shot(page, "17-dashboard-totals.png");
+    },
+  },
+  {
     id: "F2",
     file: "18-app-shell-nav.png",
     capture: async (page) => {
@@ -364,7 +577,7 @@ const authedFrames: FrameSpec[] = [
 ];
 
 async function main() {
-  console.log(`Capture Wave 1+2 screenshots → ${OUT_DIR}`);
+  console.log(`Capture Wave 1–3 screenshots → ${OUT_DIR}`);
   console.log(`APP_URL=${APP_URL}`);
   await ensureOutDir();
 

@@ -6,12 +6,13 @@ import {
   SCAN_QUEUE_NAME,
   type BduSyncJobData,
   type NvdSyncJobData,
+  type ScanJobData,
 } from "@/lib/sync/types";
 
 let sharedConnection: IORedis | null = null;
 let nvdQueue: Queue<NvdSyncJobData> | null = null;
 let bduQueue: Queue<BduSyncJobData> | null = null;
-let scanQueue: Queue | null = null;
+let scanQueue: Queue<ScanJobData> | null = null;
 
 export function getRedisUrl(): string {
   return process.env.REDIS_URL ?? "redis://localhost:6379";
@@ -62,13 +63,14 @@ export function getBduQueue(): Queue<BduSyncJobData> {
   return bduQueue;
 }
 
-export function getScanQueue(): Queue {
+export function getScanQueue(): Queue<ScanJobData> {
   if (!scanQueue) {
-    scanQueue = new Queue(SCAN_QUEUE_NAME, {
+    scanQueue = new Queue<ScanJobData>(SCAN_QUEUE_NAME, {
       connection: bullmqConnection(),
       defaultJobOptions: {
         removeOnComplete: 50,
         removeOnFail: 100,
+        attempts: 1,
       },
     });
   }
@@ -86,6 +88,15 @@ export async function enqueueBduSync(
   data: BduSyncJobData = {},
 ): Promise<{ jobId: string }> {
   const job = await getBduQueue().add("bdu-sync", data);
+  return { jobId: String(job.id) };
+}
+
+export async function enqueueScanJob(
+  data: ScanJobData,
+): Promise<{ jobId: string }> {
+  const job = await getScanQueue().add("scan", data, {
+    jobId: data.scanJobId,
+  });
   return { jobId: String(job.id) };
 }
 

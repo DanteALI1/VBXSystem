@@ -1,7 +1,7 @@
 import pino from "pino";
 import { createBduSyncWorker } from "./processors/bdu";
 import { createNvdSyncWorker } from "./processors/nvd";
-import { createScanStubWorker } from "./processors/scan";
+import { createScanWorker } from "./processors/scan";
 import { getRedisUrl } from "@/lib/sync/queues";
 
 const logger = pino({
@@ -16,7 +16,7 @@ const redisUrl = getRedisUrl();
 
 const nvd = createNvdSyncWorker(logger);
 const bdu = createBduSyncWorker(logger);
-const scan = createScanStubWorker(logger);
+const scan = createScanWorker(logger);
 
 logger.info(
   {

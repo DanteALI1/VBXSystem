@@ -87,12 +87,42 @@ TC: [TC-008](../testing/cases/TC-008-bdu-upload-fallback.md).
 - `db:migrate` падает → проверить `drizzle/` и `DATABASE_URL`.
 - Не смешивать `db:push` и migrate на одной БД без понимания.
 
-## Скан отвергнут (Wave 3)
+## Скан отвергнут allowlist (400)
 
-- Target не в allowlist или правило `enabled=false`.
-- Проверить `lib/domain/allowlist.ts` (CIDR/URL).
-- Unit: `tests/unit/allowlist.test.ts`, TC-011.
+Симптомы:
 
+- UI toast / API **400** с текстом про `allowlist`;
+- в `scan_jobs` **нет** новой строки (gate до insert);
+- `npm run smoke:scan` падает на `assertTargetAllowed`.
+
+Причины и действия:
+
+1. Нет enabled правила, покрывающего target (CIDR/URL). `seed:assets` **не** создаёт allowlist.
+2. Правило есть, но `enabled=false` — `listEnabledAllowlistRules` его не видит.
+3. Создать/включить: UI `/app/settings/allowlist` (admin) или `POST /api/allowlist` с `{ "pattern": "10.0.0.0/8", "type": "cidr", "enabled": true }`.
+4. Matcher: `lib/domain/allowlist.ts` (`isTargetAllowed`). Unit: `tests/unit/allowlist.test.ts`, TC-011 (`tests/unit/scan-allowlist.test.ts`).
+
+Если правило сняли **после** enqueue: worker re-check → `scan_jobs.status=failed`, `error` с текстом allowlist (job в БД уже есть).
+
+## Бинарь сканера отсутствует → fixture / failed
+
+nmap/nuclei:
+
+1. Поиск: `NMAP_BIN` / `NUCLEI_BIN` (должен быть executable) или имя на `PATH`.
+2. Если путь из env не executable / бинарь не найден → `shouldUseFixtureMode` = true → копия фикстуры, `meta.json.reason=binary_missing`, job обычно **succeeded**.
+3. Принудительно без бинаря: `SCAN_FIXTURE_MODE=1` в `.env` worker **или** `options.fixture: true` в POST.
+4. Live нужен: установить nmap/nuclei, проверить `which nmap` / `which nuclei`, задать absolute path в env, **перезапустить worker**, не передавать fixture.
+
+zap/openvas:
+
+- Бинарей нет в MVP. Без `options.fixture: true` → **failed** `… not implemented in MVP`.
+- `SCAN_FIXTURE_MODE` и «binary missing» stubs **не** спасают — только явный fixture в options.
+
+Отчёты смотреть в `storage/reports/<id>/meta.json`.
+
+## Scan job stuck (queued)
+
+Как sync stuck: worker не запущен / другой Redis. API уже вернул `202` и строка `queued`. Поднять `npm run worker`, проверить `REDIS_URL`. BullMQ `attempts: 1` — авто-ретраев нет.
 ## Логин не работает
 
 - Bootstrap выполнен? `npm run bootstrap:admin`.

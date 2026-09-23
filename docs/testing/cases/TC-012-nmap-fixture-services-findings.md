@@ -1,41 +1,45 @@
 # TC-012 nmap fixture → services/findings
 
-Status: draft  
-Type: unit|integration  
+Status: automated — PASS  
+Type: unit  
 Priority: P0  
 Module: scan-adapters / nmap
 
 ## Preconditions
 
-- Фикстура `tests/fixtures/nmap/scan-sample.xml`.
-- Asset существует или создаётся адаптером по target.
-- Парсер nmap XML реализован.
+- Фикстура `tests/fixtures/nmap-sample.xml`.
+- Asset создаётся адаптером по target.
+- Парсер nmap XML: `parseNmapXml` / `NmapAdapter`.
 
 ## Steps
 
-1. Подать XML в nmap adapter/parser (`reportDir` temp).
+1. Подать XML в nmap adapter/parser (`reportDir` temp, `fixture: true`).
 2. Проверить создание/обновление `services` (port, protocol, name/product/version) для `asset_id`.
-3. Если в XML есть vuln-скрипты — `findings` с severity через `parseSeverity`.
-4. `scan_jobs.status` → `succeeded` в integration harness.
+3. Vuln-скрипты → `findings` с severity + CVE.
+4. Повторный persist — сервисы идемпотентны (unique port/protocol).
 
 ## Expected
 
-- Сервисы соответствуют портам фикстуры.
-- Идемпотентность повторного parse (не плодить дубликаты портов — политика TBD: unique asset+port+protocol).
-- Raw файл сохранён под `storage/reports/<jobId>/`.
+- Сервисы соответствуют портам фикстуры (22/80/443 open; 3306 closed skipped).
+- Findings включают script CVE (например CVE-2021-44228).
+- Raw файл сохранён под reportDir (`raw.xml`).
 
 ## Automation
 
-TBD: `tests/unit/nmap-parse.test.ts`, `tests/integration/nmap-ingest.test.ts`.  
-Фикстура: см. `tests/fixtures/README.md`.
+- Parse: `tests/unit/nmap-parse.test.ts`
+- Persist + adapter: `tests/unit/nmap-persist.test.ts`
+
+```bash
+npm run test:unit -- tests/unit/nmap-parse.test.ts tests/unit/nmap-persist.test.ts
+```
 
 ## Last run
 
-datetime: —  
-command: —  
-result: —  
-evidence: —
+datetime: 2026-09-23 00:08 UTC  
+command: `npm run test:unit`  
+result: PASS  
+evidence: parse ports + CVE; persist services/findings + idempotent upsert
 
 ## Notes
 
-Без реального nmap binary в CI.
+Без реального nmap binary в CI — только fixture mode.

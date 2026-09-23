@@ -19,14 +19,13 @@ docker compose down
 docker compose up -d postgres redis
 npm run db:migrate
 npm run bootstrap:admin   # один раз
-npm run seed:vulns        # опционально
-npm run seed:assets       # опционально
+npm run seed:vulns        # опционально — каталог уязвимостей
+npm run seed:assets       # опционально — lab hosts (10.0.1.10 …)
 npm run dev               # app :3000
-npm run worker            # отдельный терминал — обязателен для sync
+npm run worker            # отдельный терминал — обязателен для sync и queue-сканов
 ```
 
 Стоп: Ctrl+C процессы; `docker compose stop postgres redis`.
-
 ---
 
 ## Миграции
@@ -120,21 +119,80 @@ HTTP: `GET /api/sync/status` → `{ nvd, bdu, jobs: { nvd, bdu } }`.
 
 ## Assets / allowlist
 
-- Seed: `npm run seed:assets`.
+- Seed assets: `npm run seed:assets` (hosts `10.0.1.10`, `10.0.1.20`, `10.0.2.5`). **Allowlist не сидится** этим скриптом.
 - CRUD UI: `/app/assets`, `/app/settings/allowlist`.
+- Перед сканами: admin создаёт enabled CIDR (типично `10.0.0.0/8`) или URL-правило, покрывающее target.
 - Роли: analyst+ для assets write; **только admin** для allowlist write.
 
 ---
 
-## Сканы (Wave 3)
+## Сканы
 
-1. Allowlist содержит target.
-2. Создать scan job (тип + target) — API ещё в плане.
-3. Следить `scan_jobs.status` и `storage/reports/<id>/`.
-4. При `failed` — поле `error` + логи worker.
+### Prefetch
 
-Worker очередь `scan` уже зарегистрирована как stub (jobs ack’аются без работы).
+1. Enabled allowlist rule, покрывающая target (например CIDR `10.0.0.0/8`).
+2. Желательно `npm run seed:assets` (asset для `10.0.1.10` уже есть — иначе persist auto-создаст).
+3. Worker запущен — **если** идёте через очередь / UI / `POST /api/scans`.
 
+### Fixture smoke (inline, без BullMQ)
+
+```bash
+npm run smoke:scan
+```
+
+Скрипт `scripts/smoke-scan-fixture.ts`:
+
+1. `assertTargetAllowed("10.0.1.10")` — иначе падает сразу.
+2. Insert `scan_jobs` type=`nmap`, `optionsJson: { fixture: true }`.
+3. Вызывает `runScanJob` **напрямую** (не enqueue) — безопасно при уже работающем worker.
+4. Печатает status, findings/services counts, sample titles.
+
+Ожидание: `status=succeeded`, findings ≈ 4, services ≈ 3.
+
+### Через UI / API (очередь)
+
+1. Войти как **analyst** или **admin**.
+2. `/app/scans` → Create (default fixture on) **или**:
+
+```bash
+curl -X POST "$APP_URL/api/scans" \
+  -H 'Content-Type: application/json' \
+  -d '{"type":"nmap","target":"10.0.1.10","options":{"fixture":true}}'
+# → 202 { "id": "<uuid>", "status": "queued" }
+```
+
+3. Worker: очередь `scan` → `runScanJob`.
+4. Статус: UI, `GET /api/scans/:id`, SQL `scan_jobs`.
+5. Findings: `/app/findings`, `GET /api/findings`.
+
+### Fixture mode
+
+| Условие (nmap/nuclei) | Эффект |
+|-----------------------|--------|
+| `options.fixture: true` | копия из `tests/fixtures/` |
+| `SCAN_FIXTURE_MODE=1` (или `true`/`yes`) | то же для всех nmap/nuclei jobs |
+| бинарь не найден (`nmap`/`nuclei` / `NMAP_BIN`/`NUCLEI_BIN`) | fallback на fixture |
+
+zap/openvas: только явный `options.fixture: true` → empty success; иначе `failed` «not implemented in MVP».
+
+### Пути отчётов
+
+```
+storage/reports/<scan_job_id>/raw.xml      # nmap (и openvas stub)
+storage/reports/<scan_job_id>/raw.jsonl    # nuclei
+storage/reports/<scan_job_id>/raw.json     # zap stub
+storage/reports/<scan_job_id>/meta.json    # adapter, fixture, reason/binary
+```
+
+Compose volume: `./storage/reports` → `/app/storage/reports`.  
+`GET /api/scans/:id` → поле `reportDir` (abs path или `null`).
+
+### Failed
+
+- Смотреть `scan_jobs.error` + логи worker (`scan job finished with failed status` / `scan job failed`).
+- Allowlist reject на API → **400**, job не создаётся; на worker re-check → `failed` в БД.
+
+См. [features/scans.md](../features/scans.md), [troubleshooting](troubleshooting.md).
 ---
 
 ## Логи
@@ -147,8 +205,8 @@ Worker очередь `scan` уже зарегистрирована как stub
 | redis | `docker compose logs redis` |
 
 Успешный старт worker: `worker ready — processors registered`.  
-Job: `nvd-sync job started` → `nvd-sync job completed` (или `… failed`).
-
+Sync: `nvd-sync job started` → `nvd-sync job completed` (или `… failed`).  
+Scan: `scan job started` → `scan job completed` (с `findingsCreated` / `fixture`) или `scan job finished with failed status`.
 ---
 
 ## Health (практика)

@@ -1,88 +1,64 @@
 # PROGRESS
 
-## 2026-09-22 23:40 — Волна 2 / Screenshots B3–D3
+## 2026-09-23 00:12 — Волна 3 / Scans findings full verification
 
 ### Цель
 
-Захват walkthrough кадров Wave 2 (B3, C1, C2, D1–D3) + регенерация Wave 1.
+Scan adapters/jobs, findings UI/status, test:all, screenshots E1–F2, финальная документация.
 
 ### Что сделано
 
-- Sync panel: секция Configuration (`NVD_SYNC_DAYS` / `NVD_SYNC_MODE`, без секретов) + testids
-- `scripts/capture-setup-screenshots.ts` расширен на Wave 2 (fixture sync wait, seed assets, allowlist API seed)
-- PNGs в `docs/setup-walkthrough/images/`; статусы README → captured
+- ScannerAdapter: Nmap, Nuclei (+ fixture), Zap/OpenVAS stubs
+- Allowlist gate на create scan; reports в `storage/reports/{jobId}/`
+- Findings list + status transitions + CVE correlation
+- QA: TC-011…017 automated; `test:all` PASS
+- Screenshots E1–E4, F1–F2; docs polish
+- A1 docker screenshot — blocked (нет docker в среде)
 
 ### Как проверял
 
 ```bash
-npm run test:screenshots   # exit 0 — Wave 1+2 frames
+npm run typecheck          # 0
+npm run lint               # 0
+npm run test:unit          # 0 — 30
+npm run test:integration   # 0 — 32
+npm run test:e2e           # 0 — 10
+npm run test:all           # 0
+npm run test:screenshots   # 0
+npm run smoke:scan         # fixture nmap succeeded
 ```
-
-### Результат
-
-Screenshots Wave 2 captured. (Не коммитил — по запросу subagent.)
-
-## 2026-09-22 23:21 — Волна 1 / Auth + shell + vulns
-
-### Цель
-
-Auth (Better Auth + bootstrap), app shell + dashboard, каталог уязвимостей (list/detail/API/seed), e2e TC-001/003/004, скрины A2/B1/B2/C3/C4/F2.
-
-### Что сделано
-
-- Better Auth email/password, `proxy.ts` gate `/app/**`, login UI, role helpers, `npm run bootstrap:admin`
-- App shell (nav, user menu), dashboard API + counters + last sync
-- Vulnerabilities API/list/detail + TanStack Table filters; `npm run seed:vulns` (6 records)
-- Playwright e2e TC-001/003/004; screenshot script + PNGs
-- Docs: auth-roles, bootstrap, vulnerabilities, dashboard, RESULTS, walkthrough
-
-### Как проверял (команды + UI)
-
-```bash
-npm run typecheck          # exit 0
-npm run lint               # exit 0
-npm run test:unit          # exit 0 — 14 passed
-npm run test:e2e           # exit 0 — 8 passed
-npm run test:screenshots   # exit 0
-```
-
-UI: login, dashboard (6 vulns), vulnerabilities table, CVE+BDU detail — verified via screenshots + e2e.
 
 ### Результат PASS
 
-Gate Wave 1 закрыт. Открытых P0 по scope волны нет. TC-002 отложен на Wave 2.
+Gate Wave 3 закрыт. Все TC-001…017 PASS. Открытых P0 нет.
 
 ### Скриншоты
 
-- A2, B1, B2, C3, C4, F2 — `captured` в `docs/setup-walkthrough/images/`
-- A1 — всё ещё blocked (нет docker)
+A2–F2 captured (кроме A1 blocked). См. `docs/setup-walkthrough/`.
 
 ### Тесты
 
-- TC-001/003/004 — automated, passed
-- См. [RESULTS.md](../testing/RESULTS.md)
+См. [RESULTS.md](../testing/RESULTS.md) Wave 3 / final.
 
-### Риски/TODO
+### Риски/TODO (MVP limitations)
 
-- Better Auth rate-limit 3/10s на sign-in — mitigated storageState
-- Sync workers / assets / allowlist → Wave 2
-- Scans / findings → Wave 3
-- AUTH_SECRET короткий в `.env.example` — только для local scaffold
+- zap/openvas stubs; live nmap/nuclei need binaries
+- Allowlist не в seed:assets — создать вручную/`10.0.0.0/8`
+- SyncState stuck running → manual reset
+- Docker A1 не снят в cloud-agent
 
 ### Commit
+
+`feat: scans findings; full docs tests walkthrough`
+
+## 2026-09-22 23:42 — Волна 2 PASS
+
+`feat: nvd/bdu assets allowlist + docs/tests/screens wave2`
+
+## 2026-09-22 23:21 — Волна 1 PASS
 
 `feat: auth shell vulns + docs/tests/screens wave1`
 
-## 2026-09-22 22:55 — Волна 0 / Foundation
-
-### Цель
-
-Foundation MVP: scaffold, schema, docs/TC skeleton.
-
-### Результат PASS
-
-См. предыдущую запись / WAVE-00-CHECKLIST.
-
-### Commit
+## 2026-09-22 22:55 — Волна 0 PASS
 
 `chore: scaffold vuln-mgmt + docs/testing skeleton`

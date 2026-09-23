@@ -24,7 +24,7 @@ API-обёртки: `requireApiSession` / `requireApiRole` / `jsonError` (`lib/a
 
 ---
 
-## Матрица прав (контракт MVP, Wave 2)
+## Матрица прав (контракт MVP, Wave 3)
 
 | Действие | viewer | analyst | admin | Где enforced |
 |----------|--------|---------|-------|--------------|
@@ -35,8 +35,10 @@ API-обёртки: `requireApiSession` / `requireApiRole` / `jsonError` (`lib/a
 | `POST/PATCH/DELETE /api/assets` | ✗ | ✓ | ✓ | `requireApiRole` analyst+ |
 | `GET /api/allowlist` | ✓ | ✓ | ✓ | session |
 | `POST/PATCH/DELETE /api/allowlist` | ✗ | ✗ | ✓ | admin only |
-| Смена статуса finding | ✗ | ✓ | ✓ | Wave 3 API |
-| Запуск scan | ✗ | ✓ | ✓ | Wave 3 API |
+| `GET /api/findings`, `GET /api/findings/:id` | ✓ | ✓ | ✓ | session |
+| `PATCH /api/findings/:id` (status) | ✗ | ✓* | ✓ | `canChangeFindingStatus` + матрица переходов (*accepted/FP → open только admin) |
+| `GET /api/scans`, `GET /api/scans/:id` | ✓ | ✓ | ✓ | session |
+| `POST /api/scans` | ✗ | ✓ | ✓ | `canCreateScan` + allowlist |
 | Bootstrap / управление ролями | — | — | ops / admin | `bootstrap:admin` |
 
 Viewer **не может** триггерить sync — [TC-002](../testing/cases/TC-002-viewer-cannot-trigger-sync.md).
@@ -57,6 +59,8 @@ Viewer **не может** триггерить sync — [TC-002](../testing/cas
 
 - [Sync](sync.md) — NVD/BDU enqueue
 - [Assets / allowlist](assets.md) — CRUD
+- [Scans](scans.md) — enqueue + allowlist
+- [Findings](findings.md) — статусы
 - [API overview](../api/overview.md)
 
 ## Будущее

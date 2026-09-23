@@ -6,6 +6,7 @@
 - npm
 - Docker + Docker Compose (рекомендуется для Postgres/Redis и полного стека)
 - Порты: `3000` (app), `5432` (postgres), `6379` (redis)
+- Опционально для live-сканов: `nmap`, `nuclei` на PATH (или `NMAP_BIN` / `NUCLEI_BIN`); без них nmap/nuclei работают в fixture mode
 
 ## Вариант A — полный стек Docker
 
@@ -33,15 +34,17 @@ docker compose up --build
 npm run db:migrate
 ```
 
-TODO: отдельного entrypoint migrate-on-start нет — миграцию запускать вручную после healthy postgres.
+Отдельного entrypoint migrate-on-start нет — миграцию запускать вручную после healthy postgres.
 
 5. Bootstrap admin — см. [bootstrap-admin.md](bootstrap-admin.md).
 
-6. (Опционально) демо-данные:
+6. Демо-данные и allowlist:
 
 ```bash
-npm run seed:vulns    # каталог уязвимостей (Wave 1)
-npm run seed:assets   # lab hosts для /app/assets
+npm run seed:vulns    # каталог уязвимостей
+npm run seed:assets   # lab hosts 10.0.1.10 / 10.0.1.20 / 10.0.2.5
+# Allowlist НЕ сидится скриптом — создать CIDR 10.0.0.0/8 в UI
+# /app/settings/allowlist (admin) перед сканами
 ```
 
 7. Открыть `APP_URL` (по умолчанию `http://localhost:3000`).
@@ -76,7 +79,7 @@ npm run seed:assets
 npm run dev
 ```
 
-5. Worker (отдельный терминал — обязателен для sync):
+5. Worker (отдельный терминал — обязателен для sync и queue-сканов):
 
 ```bash
 npm run worker
@@ -93,7 +96,19 @@ npm run smoke:sync
 
 Скрипт `scripts/smoke-sync-fixture.ts` ставит оба job в режиме fixture, ждёт `sync_states` → `succeeded|failed`, печатает sample CVE/BDU и meta. Для live sync см. [runbook](../ops/runbook.md) и UI `/app/settings/sync`.
 
-7. Открыть `APP_URL`, войти bootstrap-admin.
+7. Allowlist + smoke scan (fixture):
+
+```bash
+# Admin UI: создать enabled CIDR 10.0.0.0/8 (если ещё нет)
+# Затем inline smoke — worker не обязателен:
+npm run smoke:scan
+```
+
+Ожидание: nmap fixture → `succeeded`, ~4 findings, ~3 services; отчёт в `storage/reports/<id>/`.
+
+Через очередь: UI `/app/scans` или `POST /api/scans` с `{ "fixture": true }` при запущенном worker.
+
+8. Открыть `APP_URL`, войти bootstrap-admin. Проверить `/app/findings`, `/app/scans`.
 
 ## Полезные скрипты
 
@@ -109,15 +124,17 @@ npm run smoke:sync
 | `npm run db:push` | Drizzle push (dev) |
 | `npm run bootstrap:admin` | Создать/обновить admin |
 | `npm run seed:vulns` | Демо-уязвимости |
-| `npm run seed:assets` | Демо-активы |
-| `npm run worker` | BullMQ processors |
+| `npm run seed:assets` | Демо-активы (не allowlist) |
+| `npm run worker` | BullMQ processors (nvd/bdu/scan) |
 | `npm run smoke:sync` | Fixture NVD+BDU enqueue + wait |
+| `npm run smoke:scan` | Inline nmap fixture `runScanJob` |
 
 ## Проверка после установки
 
-- UI: login → `/app` dashboard, `/app/vulnerabilities`, `/app/assets`, `/app/settings/sync`, `/app/settings/allowlist`.
+- UI: login → `/app` dashboard, `/app/vulnerabilities`, `/app/assets`, `/app/findings`, `/app/scans`, `/app/settings/sync`, `/app/settings/allowlist`.
 - Postgres healthy, Redis `PING` → `PONG`.
-- `npm run worker` логирует processors; после `smoke:sync` в БД есть fixture CVE/BDU и `sync_states.status=succeeded`.
+- `npm run worker` логирует processors; после `smoke:sync` — fixture CVE/BDU и `sync_states.status=succeeded`.
+- После allowlist + `smoke:scan` — findings/services и файлы в `storage/reports/`.
 - Env: [configuration.md](configuration.md).
 
 Скриншоты установки: [setup-walkthrough](../setup-walkthrough/README.md).

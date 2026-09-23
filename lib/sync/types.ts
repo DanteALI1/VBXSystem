@@ -14,6 +14,10 @@ export type BduSyncJobData = {
   mode?: SyncJobMode;
 };
 
+export type ScanJobData = {
+  scanJobId: string;
+};
+
 export const NVD_QUEUE_NAME = "nvd-sync" as const;
 export const BDU_QUEUE_NAME = "bdu-sync" as const;
 export const SCAN_QUEUE_NAME = "scan" as const;

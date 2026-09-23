@@ -212,7 +212,7 @@ Source: `vulnerability_sources(source=bdu)` с `raw_xml`, `external_url=https://
 |---------|-----------|-------------|----------|
 | `nvd-sync` | `worker/processors/nvd.ts` → `runNvdSync` | 1 | 1 |
 | `bdu-sync` | `worker/processors/bdu.ts` → `runBduSync` | 1 | 1 |
-| `scan` | stub (Wave 2) | 1 | default |
+| `scan` | `worker/processors/scan.ts` → `runScanJob` | 1 | 1 |
 
 Enqueue: `enqueueNvdSync` / `enqueueBduSync` (`lib/sync/queues.ts`). Job names: `nvd-sync` / `bdu-sync`.
 

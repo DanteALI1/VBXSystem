@@ -10,8 +10,8 @@ tests/fixtures/
   nvd-fragment.json         # NVD API 2.0 fragment (fixture sync + TC-005)
   nvd-sample.json           # seed-aligned sample CVEs
   bdu-mini.xml              # mini BDU XML with/without CVE (TC-007/008)
-  nmap/                     # (planned) nmap XML
-  nuclei/                   # (planned) nuclei JSONL
+  nmap-sample.xml           # nmap XML (TC-012)
+  nuclei-sample.jsonl      # nuclei JSONL (TC-013)
 ```
 
 ## Использование
@@ -20,8 +20,8 @@ tests/fixtures/
 |----------|-----|
 | `nvd-fragment.json` | TC-005, fixture `nvd-sync` |
 | `bdu-mini.xml` | TC-007, TC-008, fixture `bdu-sync` |
-| nmap XML | TC-012 |
-| nuclei JSONL | TC-013 |
+| `nmap-sample.xml` | TC-012 |
+| `nuclei-sample.jsonl` | TC-013 |
 
 ## Правила
 

@@ -2,7 +2,8 @@
 
 Точка входа: [`worker/index.ts`](../../worker/index.ts).  
 Запуск: `npm run worker` (сервис `worker` в docker-compose).  
-Синхронизация: [features/sync.md](../features/sync.md).
+Синхронизация: [features/sync.md](../features/sync.md).  
+Сканы: [features/scans.md](../features/scans.md).
 
 При старте создаются три worker’а, логируется:
 
@@ -15,16 +16,18 @@ SIGINT/SIGTERM: `worker.close()` + `connection.quit()` для всех трёх.
 
 ## Очереди
 
-| Имя | Processor | concurrency | attempts (defaultJobOptions) | Статус Wave 2 |
-|-----|-----------|-------------|------------------------------|---------------|
+| Имя | Processor | concurrency | attempts (defaultJobOptions) | Статус |
+|-----|-----------|-------------|------------------------------|--------|
 | `nvd-sync` | `worker/processors/nvd.ts` | 1 | 1 | полный `runNvdSync` |
 | `bdu-sync` | `worker/processors/bdu.ts` | 1 | 1 | полный `runBduSync` |
-| `scan` | `worker/processors/scan.ts` | 1 | (очередь default) | **stub**: ack + log, без адаптеров |
+| `scan` | `worker/processors/scan.ts` → `runScanJob` | 1 | 1 | полный adapter pipeline |
 
 Redis: `REDIS_URL` через `createRedisConnection()` (`maxRetriesPerRequest: null` — требование BullMQ).  
 App и worker должны указывать один и тот же Redis.
 
-Очереди на стороне API: `getNvdQueue` / `getBduQueue` / `getScanQueue` (`lib/sync/queues.ts`) — `removeOnComplete: 50`, `removeOnFail: 100`.
+Очереди на стороне API: `getNvdQueue` / `getBduQueue` / `getScanQueue` (`lib/sync/queues.ts`) — `removeOnComplete: 50`, `removeOnFail: 100`, `attempts: 1`.
+
+`enqueueScanJob` задаёт BullMQ `jobId = scanJobId` (идемпотентность по id строки `scan_jobs`).
 
 ---
 
@@ -94,41 +97,47 @@ Concurrency **1** на очередь: не гоняем два NVD (или дв
 
 Upload API заранее пишет файл через `saveUploadedBduXml` в `storage/bdu/`.
 
-### `scan` (stub)
+### `scan` (job name `scan`)
 
 ```ts
-{ /* произвольные данные; Wave 2 не парсит */ }
+{ scanJobId: string }
 ```
 
-Processor только логирует `scan job received (stub — no adapter)` и возвращает `{ stub: true }`. Реальный поток — Wave 3 / [ADR-003](../decisions/ADR-003-scan-adapters.md).
+Processor (`lib/scans/queries.ts` → `runScanJob`):
+
+1. Загрузить `scan_jobs` по id (не найден → throw).
+2. Allowlist defense-in-depth; при reject → `status=failed` + `error`, return (BullMQ job при этом **completed** с `status: failed` в результате — не throw).
+3. `status=running`, `startedAt`.
+4. `getScannerAdapter(type).start` → write `storage/reports/{scanJobId}/`.
+5. `parse` → `FindingDraft[]` → `persistFindingDrafts` (services + findings + asset resolve).
+6. `status=succeeded` **или** catch → `failed` + `error` (adapter exception тоже не роняет BullMQ throw из happy-path fail — возвращает result; uncaught только «job not found»).
+
+Лог worker при success: `findingsCreated`, `servicesUpserted`, `fixture`.
+
+Fixture mode (nmap/nuclei): `options.fixture` \| `SCAN_FIXTURE_MODE` \| binary missing.  
+Stubs zap/openvas: fail unless **явный** `options.fixture: true` (env/binary **не** помогают).
+
+См. [ADR-003](../decisions/ADR-003-scan-adapters.md), [scans feature](../features/scans.md).
 
 ---
 
-## Adapter pattern (сканеры, план)
+## Adapter pattern (сканеры)
 
 ```ts
-interface ScanAdapter {
-  type: "nmap" | "nuclei" | "zap" | "openvas";
-  run(ctx: {
-    target: string;
-    options: unknown;
-    reportDir: string;
-  }): Promise<{ rawPath: string; findings: ParsedFinding[]; services?: ParsedService[] }>;
+interface ScannerAdapter {
+  readonly type: "nmap" | "nuclei" | "zap" | "openvas";
+  start(ctx: { job; reportDir; options }): Promise<ScanReport>;
+  parse(report: ScanReport): Promise<FindingDraft[]>;
 }
 ```
 
+Регистрация: `lib/scanners/registry.ts` (`getScannerAdapter`).
+
 | Адаптер | Вход | Выход |
 |---------|------|-------|
-| nmap | host/IP | XML → ports/services |
+| nmap | host/IP | XML → ports/services + findings |
 | nuclei | URL/host | JSONL → findings |
-| zap / openvas | — | TODO |
-
-Планируемый runtime flow (ещё не в коде processor):
-
-1. Загрузить `scan_jobs`, allowlist defense-in-depth.
-2. `status=running`, адаптер по `type`.
-3. Отчёт в `storage/reports/{scanJobId}/…`.
-4. Парс → `services` / `findings`, финальный статус.
+| zap / openvas | — | stub (fail / empty fixture) |
 
 ---
 
@@ -151,36 +160,32 @@ interface ScanAdapter {
 ./storage/reports      → /app/storage/reports
 ```
 
-Конвенция (план Wave 3):
+Конвенция:
 
 ```
-storage/reports/<scan_job_id>/raw.<ext>
+storage/reports/<scan_job_id>/raw.xml      # nmap, openvas stub
+storage/reports/<scan_job_id>/raw.jsonl    # nuclei
+storage/reports/<scan_job_id>/raw.json     # zap stub
 storage/reports/<scan_job_id>/meta.json
 ```
 
-App **не** выполняет сканы; только enqueue (будущее) и чтение статусов/метаданных.
+`GET /api/scans/:id` отдаёт `reportDir`, если каталог существует и читаем.
+
+App **не** выполняет сканы в HTTP-процессе; только enqueue и чтение статусов. CLI `npm run smoke:scan` — исключение: inline `runScanJob` без очереди.
 
 ---
 
-## Smoke (fixture)
+## Smoke
 
 ```bash
-# terminal A
-npm run worker
+# Sync fixtures
+npm run worker          # terminal A
+npm run smoke:sync      # terminal B
 
-# terminal B
-npm run smoke:sync
+# Scan fixture (inline, worker не обязателен)
+# нужен enabled allowlist на 10.0.0.0/8
+npm run smoke:scan
 ```
 
-Эквивалент вручную (enqueue без wait):
-
-```bash
-npx tsx --env-file=.env -e "
-import { enqueueNvdSync, enqueueBduSync } from './lib/sync/queues.ts';
-console.log(await enqueueNvdSync({ mode: 'fixture', force: true }));
-console.log(await enqueueBduSync({ mode: 'fixture', force: true }));
-process.exit(0);
-"
-```
-
-Статус: `GET /api/sync/status` или SQL `sync_states`.
+Статус sync: `GET /api/sync/status` или SQL `sync_states`.  
+Статус scan: SQL `scan_jobs` / UI `/app/scans` / `GET /api/scans/:id`.

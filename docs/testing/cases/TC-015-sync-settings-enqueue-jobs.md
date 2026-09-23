@@ -1,6 +1,6 @@
 # TC-015 Sync settings enqueue jobs
 
-Status: automated  
+Status: automated — PASS  
 Type: integration  
 Priority: P0  
 Module: sync / workers
@@ -31,7 +31,7 @@ Module: sync / workers
 
 ## Last run
 
-datetime: 2026-09-22 23:33 UTC  
+datetime: 2026-09-23 00:08 UTC (Wave 3 refresh; originally Wave 2)  
 command: `npm run test:integration`  
 result: PASS  
 evidence: 9 tests (TC-015 + TC-002), exit 0

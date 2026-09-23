@@ -15,7 +15,7 @@ RBAC: [auth-roles](auth-roles.md).
 Связанные `services` (`asset_id` ON DELETE CASCADE): `port`, `protocol`, `name`, `product`, `version`.  
 `findings.asset_id` также CASCADE при удалении актива.
 
-Сервисы появляются из сканов (nmap и др., Wave 3). На detail page список `services[]` отдаётся уже сейчас (часто пустой до сканов).
+Сервисы появляются из сканов (nmap и др.). На detail page список `services[]` отдаётся из БД (заполняется после успешного nmap-скана).
 
 ---
 
@@ -113,7 +113,7 @@ Validation (`lib/assets/schemas.ts`):
 
 ## Allowlist API
 
-Allowlist ограничивает **цели сканирования** (gate при создании scan job, Wave 3), не заменяет реестр активов.
+Allowlist ограничивает **цели сканирования** (gate при создании scan job и re-check в worker), не заменяет реестр активов.
 
 | Method | Path | Роли |
 |--------|------|------|
@@ -169,7 +169,7 @@ Upsert по hostname трёх lab-хостов (`web-01`, `db-01`, `scanner` в 
 ## UI
 
 - Список: поиск `q`, пагинация, кнопки create/edit/delete для analyst+.
-- Detail: карточка актива + таблица services (пусто до Wave 3 сканов).
+- Detail: карточка актива + таблица services (заполняется после nmap-скана).
 - Allowlist settings: CRUD только для admin; viewer/analyst read-only.
 
 ---
@@ -180,5 +180,5 @@ Upsert по hostname трёх lab-хостов (`web-01`, `db-01`, `scanner` в 
 |----|----------------|
 | TC-009 | `tests/integration/assets-crud.test.ts` |
 | TC-010 | `tests/integration/allowlist-crud.test.ts` |
-| TC-011 | allowlist gate сканов (Wave 3) — unit уже есть |
-| TC-012 | nmap → services на asset (Wave 3) |
+| TC-011 | allowlist gate сканов — `tests/unit/scan-allowlist.test.ts` |
+| TC-012 | nmap → services на asset — `tests/unit/nmap-*.test.ts` |

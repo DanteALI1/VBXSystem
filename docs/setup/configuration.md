@@ -14,6 +14,9 @@
 | `NVD_SYNC_MODE` | `live` | `live` — HTTP к NVD API; `fixture` — `tests/fixtures/nvd-fragment.json` без сети. Job `mode` перекрывает env. |
 | `BDU_XML_URL` | `https://bdu.fstec.ru/files/documents/vulxml.xml` | URL полного XML BDU для live download. |
 | `BDU_SYNC_MODE` | `live` | `live` — download URL; `fixture` — `tests/fixtures/bdu-mini.xml`. Upload API задаёт путь файлом, не через этот флаг. |
+| `SCAN_FIXTURE_MODE` | *(закомментировано)* | `1` / `true` / `yes` — nmap/nuclei всегда используют `tests/fixtures/` без бинарей. Job `options.fixture` также включает fixture. |
+| `NMAP_BIN` | *(закомментировано)* | Абсолютный путь к nmap, если не на `PATH`. Не executable / отсутствует → fixture fallback. |
+| `NUCLEI_BIN` | *(закомментировано)* | Абсолютный путь к nuclei, аналогично. |
 | `APP_URL` | `http://localhost:3000` | Публичный base URL (Better Auth `baseURL`, абсолютные ссылки). |
 
 ## Режимы sync
@@ -28,6 +31,17 @@
 
 Подробности: [features/sync.md](../features/sync.md).
 
+## Режимы сканов (nmap / nuclei)
+
+| Режим | Когда | Бинарь |
+|-------|-------|--------|
+| fixture | `options.fixture === true` **или** `SCAN_FIXTURE_MODE=1\|true\|yes` **или** binary missing | не нужен |
+| live | иначе | `nmap` / `nuclei` (или `NMAP_BIN` / `NUCLEI_BIN`) |
+
+zap/openvas: только stub; empty success **только** при `options.fixture: true`. Env `SCAN_FIXTURE_MODE` на stubs не действует.
+
+Подробности: [features/scans.md](../features/scans.md), [ADR-003](../decisions/ADR-003-scan-adapters.md).
+
 ## Переопределения docker-compose
 
 Для сервисов `app` и `worker` compose явно задаёт:
@@ -36,7 +50,7 @@
 - `REDIS_URL=redis://redis:6379`
 - `APP_URL=http://localhost:3000` (только app)
 
-`env_file: .env` подтягивает остальные ключи (`AUTH_SECRET`, bootstrap, NVD/BDU).
+`env_file: .env` подтягивает остальные ключи (`AUTH_SECRET`, bootstrap, NVD/BDU, `SCAN_FIXTURE_MODE`, binary paths).
 
 Пути storage (compose volume):
 
@@ -45,7 +59,8 @@
 ./storage/reports → /app/storage/reports
 ```
 
-BDU download/upload пишет в `storage/bdu/`.
+BDU download/upload пишет в `storage/bdu/`.  
+Scan reports: `storage/reports/<scan_job_id>/`.
 
 ## Не документируемые / отсутствующие в `.env.example`
 

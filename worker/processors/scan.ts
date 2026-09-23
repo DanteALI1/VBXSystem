@@ -1,33 +1,51 @@
 import { Worker, type Job } from "bullmq";
 import type { Logger } from "pino";
+import { runScanJob } from "@/lib/scans";
 import { createRedisConnection } from "@/lib/sync/queues";
-import { SCAN_QUEUE_NAME } from "@/lib/sync/types";
+import { SCAN_QUEUE_NAME, type ScanJobData } from "@/lib/sync/types";
 
-/**
- * Wave 2 stub — scan queue registered so jobs are consumed without work.
- * Real adapters land in a later wave.
- */
-export function createScanStubWorker(logger: Logger) {
+export function createScanWorker(logger: Logger) {
   const connection = createRedisConnection();
 
-  const worker = new Worker(
+  const worker = new Worker<ScanJobData>(
     SCAN_QUEUE_NAME,
-    async (job: Job) => {
+    async (job: Job<ScanJobData>) => {
+      const scanJobId = job.data.scanJobId;
       logger.info(
-        { jobId: job.id, name: job.name },
-        "scan job received (stub — no adapter)",
+        { bullmqJobId: job.id, scanJobId, name: job.name },
+        "scan job started",
       );
-      return { stub: true };
+      const result = await runScanJob(scanJobId);
+      if (result.status === "failed") {
+        logger.warn(
+          { scanJobId, error: result.error },
+          "scan job finished with failed status",
+        );
+      } else {
+        logger.info(
+          {
+            scanJobId,
+            findingsCreated: result.findingsCreated,
+            servicesUpserted: result.servicesUpserted,
+            fixture: result.fixture,
+          },
+          "scan job completed",
+        );
+      }
+      return result;
     },
     { connection, concurrency: 1 },
   );
 
   worker.on("failed", (job, err) => {
     logger.error(
-      { jobId: job?.id, err: err.message },
-      "scan stub job failed",
+      { jobId: job?.id, scanJobId: job?.data?.scanJobId, err: err.message },
+      "scan job failed",
     );
   });
 
   return { worker, connection };
 }
+
+/** @deprecated Use createScanWorker — stub retained name for import safety. */
+export const createScanStubWorker = createScanWorker;

@@ -20,7 +20,8 @@
     "seed:vulns": "tsx --env-file=.env scripts/seed-vulnerabilities.ts",
     "seed:assets": "tsx --env-file=.env scripts/seed-assets.ts",
     "worker": "tsx worker/index.ts",
-    "smoke:sync": "tsx --env-file=.env scripts/smoke-sync-fixture.ts"
+    "smoke:sync": "tsx --env-file=.env scripts/smoke-sync-fixture.ts",
+    "smoke:scan": "tsx --env-file=.env scripts/smoke-scan-fixture.ts"
   },
   "dependencies": {
     "@base-ui/react": "^1.8.0",

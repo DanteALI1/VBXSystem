@@ -1,0 +1,6 @@
+{"template-id":"http-missing-security-headers","info":{"name":"Missing Security Headers","severity":"info","description":"HTTP response is missing recommended security headers.","classification":{}},"host":"https://10.0.1.10","matched-at":"https://10.0.1.10/"}
+{"template-id":"CVE-2021-44228","info":{"name":"Apache Log4j RCE","severity":"critical","description":"Detects Log4Shell via JNDI lookup indicators.","classification":{"cve-id":["CVE-2021-44228"]}},"host":"https://10.0.1.10","matched-at":"https://10.0.1.10/api"}
+{"template-id":"ssl-tls-weak-cipher","info":{"name":"Weak TLS Cipher Suites","severity":"medium","description":"Server accepts weak cipher suites.","classification":{}},"host":"https://10.0.1.10","matched-at":"https://10.0.1.10:443"}
+{"template-id":"exposed-git-config","info":{"name":"Git Config Exposure","severity":"high","description":"/.git/config is publicly accessible.","classification":{"cve-id":[]}},"host":"https://10.0.1.10","matched-at":"https://10.0.1.10/.git/config"}
+this is not valid json and should be skipped
+{"template-id":"tech-detect","info":{"name":"Technology Detect","severity":"info","description":"Detected nginx.","classification":{}},"host":"https://10.0.1.10","matched-at":"https://10.0.1.10/"}
