@@ -13,6 +13,7 @@
     "db:migrate": "tsx --tsconfig tsconfig.json scripts/db-migrate.ts",
     "db:migrate:test": "DATABASE_URL=${DATABASE_URL_TEST:-postgresql://vuln:vuln@localhost:5432/vuln_test} tsx --tsconfig tsconfig.json scripts/db-migrate.ts",
     "db:seed": "tsx --tsconfig tsconfig.json scripts/db-seed.ts",
+    "bootstrap:admin": "tsx --tsconfig tsconfig.json scripts/db-seed.ts",
     "test:unit": "vitest run tests/unit",
     "test:integration": "vitest run tests/integration",
     "test:e2e": "playwright test",

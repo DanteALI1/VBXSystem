@@ -1,16 +1,25 @@
+import { Suspense } from "react";
+import { LoginForm } from "./login-form";
+
 export default function LoginPage() {
   return (
-    <main className="flex min-h-screen items-center justify-center bg-muted/40 p-6">
-      <div className="w-full max-w-sm space-y-4 rounded-md border bg-background p-6 shadow-sm">
-        <div>
-          <h1 className="text-lg font-semibold tracking-tight">VBX</h1>
-          <p className="text-sm text-muted-foreground">
-            Vulnerability management console — login (Wave 1: Better Auth).
+    <main className="flex min-h-screen items-center justify-center bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-zinc-200/80 via-zinc-100 to-zinc-200 p-4">
+      <div className="w-full max-w-[360px] border border-zinc-300/80 bg-zinc-50 p-5 shadow-sm">
+        <div className="mb-4 border-b border-zinc-200 pb-3">
+          <p className="font-mono text-lg font-semibold tracking-tight text-zinc-900">
+            VBX
+          </p>
+          <p className="mt-0.5 text-xs text-zinc-600">
+            Vulnerability management console
           </p>
         </div>
-        <p className="text-xs text-muted-foreground">
-          Placeholder UI. Auth wiring lands in Wave 1.
-        </p>
+        <Suspense
+          fallback={
+            <p className="text-xs text-muted-foreground">Loading form…</p>
+          }
+        >
+          <LoginForm />
+        </Suspense>
       </div>
     </main>
   );
