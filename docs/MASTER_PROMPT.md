@@ -53,8 +53,17 @@
 | Jobs | Redis + Celery / ARQ | NVD sync, BDU parse, notifications |
 | Auth | JWT + refresh + TOTP 2FA + session audit | Enterprise security |
 | Object storage | Local filesystem / S3-compatible | BDU uploads, exports |
-| Packaging | Docker Compose | On-prem deploy |
+| Packaging | Docker Compose | On-prem deploy на **РЕД ОС** |
+| Installer | `deploy/redos/install.sh` | Установка «с нуля» на minimal server |
 | Tests | pytest + Playwright | API + E2E критических сценариев |
+
+### 2.1 Целевая платформа развёртывания
+
+- ОС: **РЕД ОС 7.3+**, профиль **Server minimal** (на хосте изначально может не быть Docker и даже базовых утилит).
+- Всё приложение работает **только в Docker**; на хост ставится Docker CE + compose и зависимости installer’а.
+- Единый путь установки: `docs/ops/INSTALL_REDOS.md` + `deploy/redos/install.sh` + `vbx.conf`.
+- После установки — отчёт `VBX_INSTALL_INFO.txt` (URL, admin, секреты, команды).
+- Контракт env `VBX_*` нельзя ломать между волнами без migration note в STATUS.
 
 ---
 
@@ -122,6 +131,7 @@
 - [ ] Settings: профиль, пользователи, уведомления, безопасность, БД, интеграции, API keys
 - [ ] Система заявок (создание из CVE, статусы, назначения)
 - [ ] Docker Compose up + seed admin + smoke E2E
+- [ ] Установка на чистой РЕД ОС minimal через `deploy/redos/install.sh` с отчётом
 
 ---
 

@@ -19,6 +19,19 @@
 Стилистика и IA ориентированы на [cvefeed.io](https://cvefeed.io/) (dashboard, search, CVE detail, EPSS, CVEQL).  
 Раздел exploits — табличный UX как у [VulnCheck XDB](https://www.vulncheck.com/xdb).
 
+## Установка на РЕД ОС (minimal → Docker)
+
+Целевой сервер: **РЕД ОС**, минимальная конфигурация (на хосте ничего не установлено).
+
+```bash
+cp deploy/redos/vbx.conf.example /root/vbx.conf
+# подставьте host, admin, пароли…
+sudo bash deploy/redos/install.sh /root/vbx.conf
+sudo less /opt/vbx/VBX_INSTALL_INFO.txt
+```
+
+Подробности: [docs/ops/INSTALL_REDOS.md](docs/ops/INSTALL_REDOS.md).
+
 ## Запуск разработки
 
 1. Прочитать `docs/MASTER_PROMPT.md`
