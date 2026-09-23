@@ -177,6 +177,9 @@ install_docker() {
     ok "Docker установлен: $(docker --version)"
   fi
 
+  # На некоторых хостах с конфликтом iptables/nft межконтейнерный трафик блокируется
+  iptables -I DOCKER-USER -j ACCEPT 2>/dev/null || true
+
   # Compose plugin
   if docker compose version >/dev/null 2>&1; then
     ok "docker compose: $(docker compose version)"
@@ -462,6 +465,10 @@ VBX_POSTGRES_MEM_LIMIT=${VBX_POSTGRES_MEM_LIMIT}
 VBX_API_MEM_LIMIT=${VBX_API_MEM_LIMIT}
 VBX_WEB_MEM_LIMIT=${VBX_WEB_MEM_LIMIT}
 TZ=${VBX_TIMEZONE}
+VBX_CORS_ORIGINS=${public_url},http://127.0.0.1,http://localhost
+VBX_API_INTERNAL_URL=http://api:8000
+VBX_DATABASE_URL=postgresql+psycopg://vbx:${VBX_POSTGRES_PASSWORD}@postgres:5432/vbx
+VBX_REDIS_URL=redis://:${VBX_REDIS_PASSWORD}@redis:6379/0
 EOF
 
   # Compose читает .env из каталога проекта
