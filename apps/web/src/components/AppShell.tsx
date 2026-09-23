@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import {
   LayoutDashboard,
   Search,
@@ -12,6 +12,8 @@ import {
   Settings,
   Shield,
 } from "lucide-react";
+import { clearTokens } from "@/lib/api";
+import { useAuth } from "@/lib/useAuth";
 
 const NAV = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
@@ -25,6 +27,19 @@ const NAV = [
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
+  const router = useRouter();
+  const { user, loading } = useAuth();
+
+  function logout() {
+    clearTokens();
+    router.push("/login");
+  }
+
+  if (loading) {
+    return (
+      <div className="grid min-h-screen place-items-center text-sm text-muted">Загрузка сессии…</div>
+    );
+  }
 
   return (
     <div className="min-h-screen lg:grid lg:grid-cols-[240px_1fr]">
@@ -61,10 +76,19 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       </aside>
       <div className="min-w-0">
         <header className="flex items-center justify-between border-b border-border px-6 py-4">
-          <div className="text-sm text-muted">Внутренняя система управления уязвимостями</div>
-          <Link href="/login" className="text-sm text-accent2 hover:underline">
+          <div className="text-sm text-muted">
+            {user ? (
+              <>
+                {user.full_name || user.username}
+                {user.is_super_admin ? " · Главный администратор" : ""}
+              </>
+            ) : (
+              "Внутренняя система управления уязвимостями"
+            )}
+          </div>
+          <button type="button" onClick={logout} className="text-sm text-accent2 hover:underline">
             Выйти
-          </Link>
+          </button>
         </header>
         <main className="p-6">{children}</main>
       </div>

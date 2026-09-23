@@ -18,7 +18,12 @@ def verify_password(plain: str, hashed: str) -> bool:
     return pwd_context.verify(plain, hashed)
 
 
-def create_token(subject: str, expires_delta: timedelta, token_type: str = "access") -> str:
+def create_token(
+    subject: str,
+    expires_delta: timedelta,
+    token_type: str = "access",
+    extra: dict[str, Any] | None = None,
+) -> str:
     settings = get_settings()
     now = datetime.now(timezone.utc)
     payload: dict[str, Any] = {
@@ -27,6 +32,8 @@ def create_token(subject: str, expires_delta: timedelta, token_type: str = "acce
         "iat": now,
         "exp": now + expires_delta,
     }
+    if extra:
+        payload.update(extra)
     return jwt.encode(payload, settings.vbx_secret_key, algorithm=ALGORITHM)
 
 
@@ -46,6 +53,10 @@ def create_refresh_token(subject: str) -> str:
         timedelta(days=settings.refresh_token_expire_days),
         "refresh",
     )
+
+
+def create_temp_2fa_token(subject: str) -> str:
+    return create_token(subject, timedelta(minutes=5), "2fa_pending")
 
 
 def decode_token(token: str) -> dict[str, Any] | None:
