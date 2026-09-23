@@ -2,14 +2,26 @@
 
 from __future__ import annotations
 
+import subprocess
 import time
 
 from app.db import SessionLocal
 from app.services.sync_jobs import process_pending_once
 
 
+def _ensure_migrations() -> None:
+    for i in range(30):
+        try:
+            subprocess.check_call(["alembic", "upgrade", "head"])
+            return
+        except Exception as exc:
+            print(f"[vbx-worker] waiting for migrations ({i}): {exc}")
+            time.sleep(2)
+
+
 def main() -> None:
     print("[vbx-worker] started")
+    _ensure_migrations()
     while True:
         db = SessionLocal()
         try:
