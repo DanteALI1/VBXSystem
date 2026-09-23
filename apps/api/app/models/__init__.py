@@ -36,6 +36,13 @@ user_roles = Table(
     Column("role_id", ForeignKey("roles.id", ondelete="CASCADE"), primary_key=True),
 )
 
+user_groups = Table(
+    "user_groups",
+    Base.metadata,
+    Column("user_id", ForeignKey("users.id", ondelete="CASCADE"), primary_key=True),
+    Column("group_id", ForeignKey("groups.id", ondelete="CASCADE"), primary_key=True),
+)
+
 
 class User(Base):
     __tablename__ = "users"
@@ -60,6 +67,9 @@ class User(Base):
     last_login_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     roles: Mapped[list["Role"]] = relationship(secondary=user_roles, back_populates="users")
+    groups: Mapped[list["Group"]] = relationship(secondary=user_groups, back_populates="users")
+    recovery_codes: Mapped[list["RecoveryCode"]] = relationship(back_populates="user")
+    sessions: Mapped[list["LoginSession"]] = relationship(back_populates="user")
 
 
 class Role(Base):
@@ -99,6 +109,43 @@ class Group(Base):
     external_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
     description: Mapped[str] = mapped_column(Text, default="")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+    users: Mapped[list[User]] = relationship(secondary=user_groups, back_populates="groups")
+
+
+class RecoveryCode(Base):
+    __tablename__ = "recovery_codes"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    code_hash: Mapped[str] = mapped_column(String(255))
+    used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+    user: Mapped[User] = relationship(back_populates="recovery_codes")
+
+
+class LoginSession(Base):
+    __tablename__ = "login_sessions"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    device_label: Mapped[str] = mapped_column(String(255), default="")
+    user_agent: Mapped[str] = mapped_column(String(512), default="")
+    ip_address: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    is_new_device: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    last_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+    user: Mapped[User] = relationship(back_populates="sessions")
+
+
+class SystemSetting(Base):
+    __tablename__ = "system_settings"
+
+    key: Mapped[str] = mapped_column(String(128), primary_key=True)
+    value: Mapped[str] = mapped_column(Text, default="")
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
 
 
 class AuditLog(Base):

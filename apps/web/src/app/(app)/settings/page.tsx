@@ -1,10 +1,5 @@
-import { PlaceholderPage } from "@/components/PlaceholderPage";
+import { redirect } from "next/navigation";
 
-export default function Page() {
-  return (
-    <PlaceholderPage
-      title="Настройки"
-      description="Профиль, пользователи, уведомления, безопасность, база данных, интеграции, API keys — волны W1/W2/W6."
-    />
-  );
+export default function SettingsIndex() {
+  redirect("/settings/profile");
 }
