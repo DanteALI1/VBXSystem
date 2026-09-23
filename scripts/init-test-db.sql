@@ -1,0 +1,2 @@
+CREATE DATABASE vuln_test;
+GRANT ALL PRIVILEGES ON DATABASE vuln_test TO vuln;

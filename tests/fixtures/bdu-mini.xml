@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<vulnerabilities>
+  <vul>
+    <identifier>BDU:2024-00001</identifier>
+    <name>Пример уязвимости БДУ (fixture)</name>
+    <description>Мини-фикстура БДУ для тестов парсера.</description>
+    <severity>critical</severity>
+    <cvss>
+      <vector>CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H</vector>
+      <score>9.8</score>
+    </cvss>
+    <cve>CVE-2024-0001</cve>
+    <vulnerable_software>
+      <soft>
+        <vendor>ExampleCorp</vendor>
+        <product>Widget</product>
+        <version>1.0</version>
+      </soft>
+    </vulnerable_software>
+  </vul>
+</vulnerabilities>

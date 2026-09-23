@@ -1,0 +1,1 @@
+{"template-id":"cve-2024-0001","info":{"name":"ExampleCorp Widget RCE Detection","severity":"critical","classification":{"cve-id":["CVE-2024-0001"]}},"type":"http","host":"10.0.0.5","matched-at":"http://10.0.0.5/","timestamp":"2024-06-01T12:00:00Z"}
