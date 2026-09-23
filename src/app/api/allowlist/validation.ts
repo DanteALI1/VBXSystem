@@ -60,7 +60,7 @@ export const allowlistPatchSchema = z
     enabled: z.boolean().optional(),
     description: z.string().trim().max(1000).nullable().optional(),
   })
-  .superRefine((val, ctx) => {
+  .superRefine((val) => {
     if (val.pattern === undefined && val.patternType === undefined) return;
     // When either changes, both sides must be known for validation — caller merges.
   });
