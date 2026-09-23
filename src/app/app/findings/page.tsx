@@ -1,10 +1,21 @@
-import { StubPage } from "@/components/app/stub-page";
+import { Suspense } from "react";
+import { FindingsPageClient } from "@/components/findings/findings-page-client";
+import { getSession, getUserRole, hasMinRole } from "@/lib/auth/rbac";
 
-export default function FindingsPage() {
+export default async function FindingsPage() {
+  const session = await getSession();
+  const role = getUserRole(session?.user);
+  const canTransition = hasMinRole(role, "analyst");
+
   return (
-    <StubPage
-      title="Findings"
-      description="Open and closed findings from scans and matching."
-    />
+    <Suspense
+      fallback={
+        <p className="text-sm text-muted-foreground" data-testid="findings-loading">
+          Loading findings…
+        </p>
+      }
+    >
+      <FindingsPageClient canTransition={canTransition} />
+    </Suspense>
   );
 }

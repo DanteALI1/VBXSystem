@@ -13,7 +13,7 @@
 - [ ] Allowlist CRUD + enforce
 - [ ] ScanJob nmap adapter + fixture ingest
 - [ ] Nuclei detect-only adapter + fixture
-- [ ] Finding status transitions
+- [x] Finding status transitions
 - [ ] Screenshot walkthrough smoke (наличие кадров)
 
 ## Tests
@@ -23,7 +23,7 @@
 - [ ] TC-011
 - [ ] TC-012
 - [ ] TC-013
-- [ ] TC-014
+- [x] TC-014
 - [ ] TC-017
 
 ## Docs / Ops

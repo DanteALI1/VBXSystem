@@ -2,55 +2,67 @@
 
 Finding — факт обнаружения (сканер или ручная фиксация) на активе, опционально связанный с записью каталога `Vulnerability`.
 
-## Список
+## Список (`/app/findings`)
 
-Колонки: title, severity, status, asset, service (port), CVE/BDU, first/last seen, scanJob.
+Плотная таблица. Колонки: **status**, **severity**, **title**, **asset**, **CVE/BDU**, **scan job**, **updated**; для `analyst+` — row action смены статуса.
 
-Фильтры: status, severity, asset, tag уязвимости, текстовый поиск.
+Фильтры: `status`, `severity`, текстовый поиск (`q` по title/CVE/BDU/asset), query-параметры корреляции `vulnerabilityId` / `cveId` / `bduId` / `assetId`.
 
-Роли: чтение `viewer`+; смена статуса / назначение `analyst`+; удаление `admin`.
+Роли: чтение `viewer+`; смена статуса `analyst+`.
 
 ## Статусы и переходы
 
-| Из \ В | open | confirmed | risk_accepted | fixed | false_positive |
-|--------|------|-----------|---------------|-------|----------------|
-| open | — | ✓ | ✓ | ✓ | ✓ |
-| confirmed | ✓ | — | ✓ | ✓ | ✓ |
-| risk_accepted | ✓ | ✓ | — | ✓ | ✓ |
-| fixed | ✓ (регресс) | ✓ | — | — | — |
-| false_positive | ✓ | ✓ | — | — | — |
+Статусы (enum БД `finding_status`):
 
-При уходе в терминальные `fixed` / `false_positive` / `risk_accepted` выставляется `closedAt` (очищается при возврате в open/confirmed).
+| Status | Meaning |
+|--------|---------|
+| `open` | Активный, требует триажа |
+| `fixed` | Устранено |
+| `accepted` | Принятый риск |
+| `false_positive` | Ложное срабатывание |
 
-Недопустимый переход → 400 `INVALID_STATUS_TRANSITION` (TC-014).
+Допустимы переходы между любыми статусами (включая регресс `fixed` → `open`). Неизвестный status → **400** `VALIDATION_ERROR` (TC-014). Viewer PATCH → **403**.
 
-## Деталь
+`updatedAt` обновляется при каждом успешном PATCH.
 
-- Evidence (json из сканера), сырой фрагмент.
+## Корреляция на карточке уязвимости
+
+Секция **Related Findings** на `/app/vulnerabilities/[id]` выбирает findings по:
+
+1. `findings.vulnerabilityId = id`, **или**
+2. `findings.cveId = vulnerability.cveId` (если задан), **или**
+3. `findings.bduId = vulnerability.bduId` (если задан).
+
+Ссылка «Open in Findings» передаёт те же идентификаторы в query-параметры списка.
+
+## Деталь / evidence
+
+- `rawEvidence` (json из сканера) — на GET `/api/findings/:id`.
 - Связь vulnerability (deep link в каталог).
-- Asset / service.
-- История смены статуса (минимально — в `updatedAt` + audit TODO Wave 2).
+- Asset / scan job.
 
 ## Создание
 
-1. Автоматически из ingest nmap/nuclei.
-2. Вручную analyst+ (title, asset, optional vulnerabilityId) — TODO Wave 1 если не в MVP.
+1. Автоматически из ingest nmap/nuclei (Wave 3 scan agent — out of scope этого UI-пакета).
+2. Seed helper: `src/lib/findings/seed-sample-findings.ts` для демо-данных.
+3. Ручное создание analyst+ — TODO.
 
 ## Дедуп
 
-Ключ ориентира: `(assetId, serviceId?, vulnerabilityId|title fingerprint)`. Повторный скан обновляет `lastSeenAt`, не создаёт дубль open-finding.
+Ключ ориентира: `(assetId, serviceId?, vulnerabilityId|title fingerprint)`. Повторный скан обновляет evidence, не создаёт дубль open-finding (контракт ingest).
 
 ## Dashboard
 
-Счётчики open/critical findings — TC-016.
+Счётчик open findings — TC-016 (`status = open`).
 
-## API (ориентир)
+## API
 
 | Method | Path | Роль |
 |--------|------|------|
 | GET | `/api/findings` | viewer+ |
 | GET | `/api/findings/:id` | viewer+ |
-| PATCH | `/api/findings/:id` | analyst+ (status, notes) |
-| DELETE | `/api/findings/:id` | admin |
+| PATCH | `/api/findings/:id` | analyst+ (`{ status }`) |
 
-TODO (Wave 2): bulk status, SLA, экспорт.
+Query list: `q`, `status`, `severity`, `assetId`, `vulnerabilityId`, `cveId`, `bduId`, `page`, `pageSize`.
+
+TODO: bulk status, SLA, экспорт, audit trail смены статуса.
