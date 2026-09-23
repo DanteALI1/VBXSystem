@@ -1,10 +1,10 @@
-import { StubPage } from "@/components/app/stub-page";
+import { AssetsPageClient } from "@/components/assets/assets-page-client";
+import { getSession, getUserRole, hasMinRole } from "@/lib/auth/rbac";
 
-export default function AssetsPage() {
-  return (
-    <StubPage
-      title="Assets"
-      description="Inventory of monitored hosts and services."
-    />
-  );
+export default async function AssetsPage() {
+  const session = await getSession();
+  const role = getUserRole(session?.user);
+  const canMutate = hasMinRole(role, "analyst");
+
+  return <AssetsPageClient canMutate={canMutate} />;
 }
