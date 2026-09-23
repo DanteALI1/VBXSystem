@@ -71,8 +71,8 @@ POST проверяет allowlist до enqueue.
 |--------|------|------|
 | GET | `/api/sync/state` | viewer+ |
 | POST | `/api/sync/nvd` | analyst+ |
-| POST | `/api/sync/bdu` | analyst+ |
-| POST | `/api/sync/bdu/upload` | admin | multipart XML |
+| POST | `/api/settings/sync/bdu` | analyst+ | enqueue BDU download |
+| POST | `/api/settings/sync/bdu/upload` | admin | multipart XML fallback |
 | PATCH | `/api/sync/settings` | admin |
 
 Viewer → 403 на POST sync (TC-002).

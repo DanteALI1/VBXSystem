@@ -48,3 +48,6 @@ yarn-error.log*
 # runtime storage (reports may be large)
 /storage/reports/**
 !/storage/reports/.gitkeep
+/storage/bdu-uploads/**
+!/storage/bdu-uploads/.gitkeep
+/storage/bdu-uploads-test/**

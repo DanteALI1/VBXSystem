@@ -17,8 +17,8 @@
 | TC-004 | pass | e2e | ~4s | W1-E2E-001 | detail sections |
 | TC-005 | draft | integration | | | Wave 2 |
 | TC-006 | draft | integration | | | Wave 2 |
-| TC-007 | draft | integration | | | Wave 2 |
-| TC-008 | draft | integration | | | Wave 2 |
+| TC-007 | automated | integration | PASS | fixtures/mocks | Wave 2 BDU |
+| TC-008 | automated | integration | PASS | fixtures/mocks | Wave 2 BDU |
 | TC-009 | draft | integration | | | Wave 2 |
 | TC-010 | draft | integration | | | Wave 2 |
 | TC-011 | draft | integration | | | Wave 3 |

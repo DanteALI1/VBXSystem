@@ -1,10 +1,10 @@
 /**
- * Worker entrypoint — Wave 0 skeleton.
- * Real NVD/BDU/scan processors land in Waves 2–3.
+ * Worker entrypoint — Wave 2: BDU processor wired; NVD/scan remain stubs.
  */
 import { Worker } from "bullmq";
 import { getRedisConnection, QUEUE_NAMES } from "@/lib/queue";
 import { logger } from "@/lib/logger";
+import { processBduSyncJob } from "./bdu-processor";
 
 const connection = getRedisConnection();
 
@@ -18,10 +18,8 @@ const nvdWorker = new Worker(
 
 const bduWorker = new Worker(
   QUEUE_NAMES.bduSync,
-  async (job) => {
-    logger.info({ jobId: job.id, name: job.name }, "bdu-sync job received (stub)");
-  },
-  { connection },
+  async (job) => processBduSyncJob(job),
+  { connection, concurrency: 1 },
 );
 
 const scanWorker = new Worker(
@@ -38,7 +36,7 @@ for (const w of [nvdWorker, bduWorker, scanWorker]) {
   });
 }
 
-logger.info("VBX worker started (Wave 0 stubs)");
+logger.info("VBX worker started (BDU processor active)");
 
 process.on("SIGINT", async () => {
   await Promise.all([nvdWorker.close(), bduWorker.close(), scanWorker.close()]);

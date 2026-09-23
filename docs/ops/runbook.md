@@ -44,7 +44,9 @@ Graceful stop workers: SIGTERM → дождаться текущего job (Bull
 ```bash
 curl -X POST "$URL/api/sync/nvd" -H "Cookie: ..."
 # BDU upload
-curl -X POST "$URL/api/sync/bdu/upload" -F file=@bdu.xml -H "Cookie: ..."
+curl -X POST "$URL/api/settings/sync/bdu/upload" -F file=@bdu.xml -H "Cookie: ..."
+# or enqueue download:
+curl -X POST "$URL/api/settings/sync/bdu" -H "Cookie: ..."
 ```
 
 Следить за логами worker: upserted/skipped.

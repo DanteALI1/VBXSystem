@@ -11,9 +11,9 @@
 
 - [ ] NVD sync worker + idempotent upsert
 - [ ] NVD rate-limit backoff
-- [ ] BDU XML parse + CVE link
-- [ ] BDU upload fallback
-- [ ] Sync settings enqueue (UI/API)
+- [x] BDU XML parse + CVE link
+- [x] BDU upload fallback
+- [ ] Sync settings enqueue (UI/API) — BDU controls done; NVD separate
 - [ ] Tags + saved views
 - [ ] Dashboard counters
 
@@ -21,8 +21,8 @@
 
 - [ ] TC-005
 - [ ] TC-006
-- [ ] TC-007
-- [ ] TC-008
+- [x] TC-007
+- [x] TC-008
 - [ ] TC-015
 - [ ] TC-016
 - [ ] TC-018

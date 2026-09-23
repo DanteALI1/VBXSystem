@@ -95,6 +95,30 @@ A2/B1/B2/C3/C4/C5/F2 → `02-login.png` … `19-app-shell.png`
 
 ## Wave 1 — done (see above)
 
-## Wave 2 — pending
+---
+
+## 2026-09-23 — Волна 2 / BDU XML sync (subagent)
+
+### Цель
+BDU ФСТЭК XML download/upload → parse → upsert; BDU↔CVE link; SyncState by file hash; admin upload fallback; history.
+
+### Что сделано
+- `src/lib/sync/bdu/**` — download/parse/upsert/SyncState/queue/run
+- Worker `bdu-processor` wired in `src/workers`
+- API `POST /api/settings/sync/bdu` + `/upload` (202 enqueue)
+- Settings Sync page: modular `BduSyncControls`
+- Fixture `bdu-mini.xml` (CVE link + bdu-only + broken node)
+- TC-007 / TC-008 integration (fixtures/mocks; no real BDU_XML_URL)
+
+### Как проверял
+```
+pnpm typecheck
+DATABASE_URL_TEST=… pnpm exec vitest run tests/integration/bdu-parse.test.ts tests/integration/bdu-upload.test.ts
+```
+
+### Commit
+`feat(wave2): bdu xml sync upload cve link`
+
+## Wave 2 — in progress (BDU done; NVD/assets parallel)
 
 ## Wave 3 — pending
