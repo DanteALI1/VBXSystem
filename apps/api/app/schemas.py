@@ -215,3 +215,58 @@ class BduUploadOut(BaseModel):
     run: SyncRunOut | None
     message: str
     filename: str
+
+
+class SearchHitOut(BaseModel):
+    kind: str
+    id: str
+    title: str
+    description: str = ""
+    severity: str = ""
+    cvss_score: float | None = None
+    published_at: str | None = None
+    is_cisa_kev: bool = False
+    has_bdu: bool = False
+    epss: dict | None = None
+    href: str
+
+
+class SearchResponse(BaseModel):
+    total: int
+    page: int
+    page_size: int
+    results: list[SearchHitOut]
+
+
+class CveDetailOut(BaseModel):
+    id: str
+    title: str
+    description: str
+    status: str = ""
+    source: str = ""
+    published_at: str | None = None
+    modified_at: str | None = None
+    cvss: dict
+    is_cisa_kev: bool = False
+    cwes: list = []
+    products: list = []
+    references: list = []
+    kev: dict | None = None
+    epss: dict | None = None
+    bdu: list = []
+
+
+class BduDetailOut(BaseModel):
+    id: str
+    name: str
+    description: str = ""
+    severity: str = ""
+    severity_level: int | None = None
+    status: str = ""
+    solution: str = ""
+    vendors: str = ""
+    software_names: str = ""
+    cwes: str = ""
+    linked_cve_ids: list[str] = []
+    identify_date: str = ""
+    is_standalone: bool = True

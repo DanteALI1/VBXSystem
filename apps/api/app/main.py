@@ -10,6 +10,7 @@ from app.api import (
     groups_routes,
     profile_routes,
     routes,
+    search_routes,
     users_routes,
 )
 from app.core.config import get_settings
@@ -46,6 +47,7 @@ def create_app() -> FastAPI:
     app.include_router(users_routes.router)
     app.include_router(groups_routes.router)
     app.include_router(database_routes.router)
+    app.include_router(search_routes.router)
     return app
 
 
