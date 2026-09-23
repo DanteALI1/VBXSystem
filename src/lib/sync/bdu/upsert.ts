@@ -63,17 +63,6 @@ async function upsertSource(
   record: ParsedBduRecord,
   at: Date,
 ): Promise<void> {
-  const [existing] = await db
-    .select()
-    .from(vulnerabilitySources)
-    .where(
-      and(
-        eq(vulnerabilitySources.vulnerabilityId, vulnerabilityId),
-        eq(vulnerabilitySources.source, "bdu"),
-      ),
-    )
-    .limit(1);
-
   const values = {
     vulnerabilityId,
     source: "bdu" as const,
@@ -83,14 +72,21 @@ async function upsertSource(
     sourceCvssScore: scoreToDb(record.cvssScore),
   };
 
-  if (existing) {
-    await db
-      .update(vulnerabilitySources)
-      .set(values)
-      .where(eq(vulnerabilitySources.id, existing.id));
-  } else {
-    await db.insert(vulnerabilitySources).values(values);
-  }
+  await db
+    .insert(vulnerabilitySources)
+    .values(values)
+    .onConflictDoUpdate({
+      target: [
+        vulnerabilitySources.vulnerabilityId,
+        vulnerabilitySources.source,
+      ],
+      set: {
+        rawPayload: values.rawPayload,
+        syncedAt: values.syncedAt,
+        sourceSeverity: values.sourceSeverity,
+        sourceCvssScore: values.sourceCvssScore,
+      },
+    });
 }
 
 /**

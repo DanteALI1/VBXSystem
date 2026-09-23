@@ -6,6 +6,8 @@ export default defineConfig({
     environment: "node",
     include: ["tests/unit/**/*.{test,spec}.ts", "tests/integration/**/*.{test,spec}.ts"],
     globals: false,
+    /** Integration tests share DATABASE_URL_TEST — avoid cross-file races */
+    fileParallelism: false,
   },
   resolve: {
     alias: {
