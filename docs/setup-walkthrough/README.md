@@ -18,11 +18,11 @@ Viewport ~1440×900. Без секретов. Продукт **VBX** — без 
 | D1 | assets list/create | `images/11-assets.png` | **ready** | 2 |
 | D2 | asset detail | `images/12-asset-detail.png` | **ready** | 2 |
 | D3 | allowlist entry | `images/13-allowlist.png` | **ready** | 2 |
-| E1 | create scan job | `images/14-scan-create.png` | pending | 3 |
-| E2 | job status | `images/15-scan-status.png` | pending | 3 |
-| E3 | findings list | `images/16-findings.png` | pending | 3 |
-| E4 | finding status change | `images/17-finding-status.png` | pending | 3 |
-| F1 | dashboard totals | `images/18-dashboard-totals.png` | pending | 3 |
+| E1 | create scan job | `images/14-scan-create.png` | **ready** | 3 |
+| E2 | job status | `images/15-scan-status.png` | **ready** | 3 |
+| E3 | findings list | `images/16-findings.png` | **ready** | 3 |
+| E4 | finding status change | `images/17-finding-status.png` | **ready** | 3 |
+| F1 | dashboard totals | `images/18-dashboard-totals.png` | **ready** | 3 |
 | F2 | app shell/nav | `images/19-app-shell.png` | **ready** | 1 |
 
 Съёмка: `pnpm test:screenshots` (`scripts/capture-setup-screenshots.ts`) + Playwright. Offline/seed подписывать в подписи кадра.

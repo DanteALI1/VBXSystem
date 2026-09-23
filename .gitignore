@@ -52,3 +52,4 @@ yarn-error.log*
 !/storage/bdu-uploads/.gitkeep
 /storage/bdu-uploads-test/**
 .worktrees/
+storage/reports/**

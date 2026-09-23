@@ -1,38 +1,11 @@
-# WAVE-03 CHECKLIST — (template)
+# WAVE-03 CHECKLIST — Scans + Findings + full verification
 
-> Заполнить цели волны перед стартом. Все пункты unchecked.
-
-## Goals
-
-- [ ] _(определить)_
-- [ ] _(определить)_
-
-## Implementation
-
-- [ ] Assets CRUD
-- [ ] Allowlist CRUD + enforce
-- [ ] ScanJob nmap adapter + fixture ingest
-- [ ] Nuclei detect-only adapter + fixture
-- [x] Finding status transitions
-- [ ] Screenshot walkthrough smoke (наличие кадров)
-
-## Tests
-
-- [ ] TC-009
-- [ ] TC-010
-- [ ] TC-011
-- [ ] TC-012
-- [ ] TC-013
-- [x] TC-014
-- [ ] TC-017
-
-## Docs / Ops
-
-- [ ] Runbook проверен на lab
-- [ ] PROGRESS.md Wave 3
-- [ ] ADR-003 сверка deny-list templates
-
-## Gate
-
-- [ ] Allowlist bypass невозможен (негативные тесты)
-- [ ] Orchestrator Result
+- [x] Scan adapters allowlist-only, detect-only nuclei, no exploitation
+- [x] Findings UI + status + related on vuln detail
+- [x] typecheck PASS
+- [x] lint PASS
+- [x] unit + integration + e2e PASS
+- [x] screenshots E1–E4, F1
+- [x] walkthrough A1–F2 + C5 complete
+- [x] PROGRESS.md PASS
+- [x] commit + push

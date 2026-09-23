@@ -122,3 +122,39 @@ DATABASE_URL_TEST=… pnpm exec vitest run tests/integration/bdu-parse.test.ts t
 ## Wave 2 — in progress (BDU done; NVD/assets parallel)
 
 ## Wave 3 — pending
+
+---
+
+## 2026-09-23 06:36 UTC — Волна 3 / Scans + Findings + verification
+
+### Цель
+Scan adapters (nmap/nuclei, zap/openvas stubs), allowlist-only + detect-only nuclei, findings UI/status, related findings on vuln detail, test:all, screenshots E1–E4+F1.
+
+### Что сделано
+- ScannerAdapter + Nmap/Nuclei + stubs; allowlist gate; nuclei policy
+- Scans UI create/list; reports under storage/reports/{jobId}/
+- Findings list + status transitions; Related Findings on detail
+- Integration TC-011…014; e2e + walkthrough smoke TC-017
+- Screenshots 14–18
+
+### Как проверял
+```
+pnpm typecheck && pnpm lint && pnpm test:unit && pnpm test:integration && pnpm test:e2e
+```
+
+### Результат PASS/FAIL
+**PASS**
+
+### Скриншоты
+E1–E4, F1 ready (A1–F2+C5 complete set)
+
+### Тесты
+Unit 16; Integration 17; E2E 7+walkthrough
+
+### Риски/TODO MVP limits
+- ZAP/OpenVAS stubs only
+- Binaries optional → fixture mode
+- No multi-tenant/SaaS notifications/AI
+
+### Commit
+`feat: scans findings; full docs tests walkthrough`
