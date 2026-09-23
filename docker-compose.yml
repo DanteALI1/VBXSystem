@@ -1,0 +1,108 @@
+name: vbxsystem
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: vbx
+      POSTGRES_USER: vbx
+      POSTGRES_PASSWORD: ${VBX_POSTGRES_PASSWORD}
+      TZ: ${VBX_TIMEZONE:-Europe/Moscow}
+    volumes:
+      - vbx_pg:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U vbx -d vbx"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    mem_limit: ${VBX_POSTGRES_MEM_LIMIT:-2g}
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--requirepass", "${VBX_REDIS_PASSWORD}"]
+    volumes:
+      - vbx_redis:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${VBX_REDIS_PASSWORD}", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  api:
+    build:
+      context: ./apps/api
+    restart: unless-stopped
+    environment:
+      VBX_SECRET_KEY: ${VBX_SECRET_KEY}
+      VBX_DATABASE_URL: postgresql+psycopg://vbx:${VBX_POSTGRES_PASSWORD}@postgres:5432/vbx
+      VBX_REDIS_URL: redis://:${VBX_REDIS_PASSWORD}@redis:6379/0
+      VBX_ADMIN_USERNAME: ${VBX_ADMIN_USERNAME}
+      VBX_ADMIN_EMAIL: ${VBX_ADMIN_EMAIL}
+      VBX_ADMIN_PASSWORD: ${VBX_ADMIN_PASSWORD}
+      VBX_ADMIN_FULL_NAME: ${VBX_ADMIN_FULL_NAME}
+      VBX_ADMIN_ORG: ${VBX_ADMIN_ORG}
+      VBX_ADMIN_TITLE: ${VBX_ADMIN_TITLE}
+      VBX_ADMIN_PHONE: ${VBX_ADMIN_PHONE}
+      VBX_NVD_API_KEY: ${VBX_NVD_API_KEY:-}
+      VBX_CORS_ORIGINS: ${VBX_CORS_ORIGINS:-http://localhost,http://127.0.0.1}
+      VBX_TIMEZONE: ${VBX_TIMEZONE:-Europe/Moscow}
+      TZ: ${VBX_TIMEZONE:-Europe/Moscow}
+    ports:
+      - "${VBX_API_PORT:-8000}:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    mem_limit: ${VBX_API_MEM_LIMIT:-2g}
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8000/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+  worker:
+    build:
+      context: ./apps/api
+    restart: unless-stopped
+    command: ["python", "-c", "import time; print('VBX worker stub ready (W0)'); time.sleep(3600*24*365)"]
+    environment:
+      VBX_SECRET_KEY: ${VBX_SECRET_KEY}
+      VBX_DATABASE_URL: postgresql+psycopg://vbx:${VBX_POSTGRES_PASSWORD}@postgres:5432/vbx
+      VBX_REDIS_URL: redis://:${VBX_REDIS_PASSWORD}@redis:6379/0
+      TZ: ${VBX_TIMEZONE:-Europe/Moscow}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    mem_limit: ${VBX_API_MEM_LIMIT:-2g}
+    healthcheck:
+      disable: true
+
+  web:
+    build:
+      context: ./apps/web
+      args:
+        - NEXT_PUBLIC_APP_NAME=VBXSystem
+    restart: unless-stopped
+    environment:
+      VBX_API_INTERNAL_URL: http://api:8000
+      TZ: ${VBX_TIMEZONE:-Europe/Moscow}
+    ports:
+      - "${VBX_HTTP_PORT:-80}:3000"
+    depends_on:
+      api:
+        condition: service_healthy
+    mem_limit: ${VBX_WEB_MEM_LIMIT:-1g}
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3000/login >/dev/null || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+volumes:
+  vbx_pg:
+  vbx_redis:

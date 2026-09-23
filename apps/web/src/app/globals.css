@@ -1,0 +1,37 @@
+:root {
+  --vbx-bg: #0b0e14;
+  --vbx-surface: #12161f;
+  --vbx-surface-2: #181e2a;
+  --vbx-border: rgba(148, 163, 184, 0.16);
+  --vbx-text: #e8eefc;
+  --vbx-muted: #9aa8c7;
+  --vbx-accent: #3b82f6;
+  --vbx-accent-2: #60a5fa;
+  --vbx-danger: #f87171;
+  --vbx-warn: #fbbf24;
+  --vbx-ok: #34d399;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  min-height: 100%;
+  background:
+    radial-gradient(1200px 600px at 10% -10%, rgba(59, 130, 246, 0.16), transparent 55%),
+    radial-gradient(900px 500px at 90% 0%, rgba(14, 165, 233, 0.08), transparent 50%),
+    var(--vbx-bg);
+  color: var(--vbx-text);
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+::selection {
+  background: rgba(59, 130, 246, 0.35);
+}
