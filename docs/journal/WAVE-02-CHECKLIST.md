@@ -1,39 +1,31 @@
-# WAVE-02 CHECKLIST — (template)
-
-> Заполнить цели волны перед стартом. Все пункты unchecked.
-
-## Goals
-
-- [ ] _(определить)_
-- [ ] _(определить)_
+# WAVE-02 CHECKLIST — Sync + Assets/Allowlist
 
 ## Implementation
 
 - [x] NVD sync worker + idempotent upsert
 - [x] NVD rate-limit backoff
-- [ ] BDU XML parse + CVE link
-- [ ] BDU upload fallback
-- [x] Sync settings enqueue (UI/API) — NVD path (`/api/settings/sync/nvd`)
-- [ ] Tags + saved views
-- [ ] Dashboard counters
+- [x] BDU XML parse + CVE link
+- [x] BDU upload fallback
+- [x] Sync settings enqueue (UI/API) — NVD + BDU
+- [ ] Assets CRUD (merge assets branch)
+- [ ] Allowlist CRUD (merge assets branch)
 
 ## Tests
 
 - [x] TC-005
 - [x] TC-006
-- [ ] TC-007
-- [ ] TC-008
+- [x] TC-007
+- [x] TC-008
+- [ ] TC-009
+- [ ] TC-010
 - [ ] TC-015
-- [ ] TC-016
-- [ ] TC-018
-- [ ] TC-019
 
 ## Docs
 
-- [ ] Walkthrough кадры F1 и связанные — статус PNG
-- [ ] PROGRESS.md Wave 2
+- [ ] Walkthrough B3,C1,C2,D1,D2,D3
+- [ ] PROGRESS.md Wave 2 PASS
 
 ## Gate
 
-- [ ] Workers устойчивы на lab feed
+- [ ] typecheck/lint/integration PASS after full merge
 - [ ] Orchestrator Result

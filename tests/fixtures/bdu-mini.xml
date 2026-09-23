@@ -18,4 +18,26 @@
       </soft>
     </vulnerable_software>
   </vul>
+  <vul>
+    <identifier>BDU:2024-00002</identifier>
+    <name>BDU-only entry without CVE</name>
+    <description>Запись БДУ без ссылки на CVE для TC-007.</description>
+    <severity>medium</severity>
+    <cvss>
+      <vector>CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:U/C:L/I:L/A:N</vector>
+      <score>4.4</score>
+    </cvss>
+    <vulnerable_software>
+      <soft>
+        <vendor>LocalSoft</vendor>
+        <product>Agent</product>
+        <version>2.1</version>
+      </soft>
+    </vulnerable_software>
+  </vul>
+  <!-- broken node: missing identifier — must be skipped -->
+  <vul>
+    <name>Broken vul without identifier</name>
+    <description>Should not abort the job.</description>
+  </vul>
 </vulnerabilities>

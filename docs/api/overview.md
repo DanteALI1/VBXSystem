@@ -71,8 +71,8 @@ POST проверяет allowlist до enqueue.
 |--------|------|------|
 | GET | `/api/settings/sync` | viewer+ | SyncState snapshot |
 | POST | `/api/settings/sync/nvd` | analyst+ | enqueue → **202** `{ jobId }` |
-| POST | `/api/settings/sync/bdu` | analyst+ | (BDU module) |
-| POST | `/api/sync/bdu/upload` | admin | multipart XML (BDU) |
+| POST | `/api/settings/sync/bdu` | analyst+ | enqueue BDU download |
+| POST | `/api/settings/sync/bdu/upload` | admin | multipart XML fallback |
 
 Viewer → 403 на POST sync (TC-002). HTTP enqueue never blocks on full sync.
 

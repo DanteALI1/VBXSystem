@@ -27,6 +27,7 @@
 
 | Документ | Описание |
 |----------|----------|
+| [features/sync-bdu.md](./features/sync-bdu.md) | BDU XML download/upload sync |
 | [features/vulnerabilities.md](./features/vulnerabilities.md) | Каталог уязвимостей, поиск, saved views, теги |
 | [features/assets.md](./features/assets.md) | Активы и сервисы |
 | [features/scans.md](./features/scans.md) | Сканирование (allowlist-only) |

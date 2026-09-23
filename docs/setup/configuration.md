@@ -64,9 +64,11 @@
 
 | Переменная | Обязательна | Описание | Пример |
 |------------|-------------|----------|--------|
-| `BDU_FEED_URL` | нет | URL XML-фида | *(официальный URL в example как комментарий)* |
+| `BDU_XML_URL` | нет | URL XML-фида ФСТЭК | `https://bdu.fstec.ru/files/documents/vulxml.xml` |
+| `BDU_FEED_URL` | нет | Alias для `BDU_XML_URL` | |
 | `BDU_SYNC_CRON` | нет | Cron | `0 3 * * *` |
-| `BDU_UPLOAD_DIR` | нет | Каталог upload fallback | `./data/bdu-uploads` |
+| `BDU_UPLOAD_DIR` | нет | Каталог upload fallback | `./storage/bdu-uploads` |
+| `BDU_UPLOAD_MAX_BYTES` | нет | Лимит multipart | `67108864` |
 
 ## Сканирование
 

@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState, useTransition } from "react";
 import { Button } from "@/components/ui/button";
+import { BduSyncControls } from "@/components/settings/bdu-sync-controls";
 
 type SyncSourceState = {
   source: string;
@@ -179,19 +180,17 @@ export default function SyncSettingsPage() {
         </div>
 
         {jobId ? (
-          <p className="text-sm text-zinc-600 dark:text-zinc-400" data-testid="nvd-job-id">
+          <p
+            className="text-sm text-zinc-600 dark:text-zinc-400"
+            data-testid="nvd-job-id"
+          >
             Enqueued job <span className="font-mono">{jobId}</span>
           </p>
         ) : null}
       </section>
 
-      <section className="space-y-2 border-t border-zinc-200 pt-6 dark:border-zinc-800">
-        <h2 className="text-sm font-semibold text-zinc-900 dark:text-zinc-50">
-          BDU
-        </h2>
-        <p className="text-sm text-zinc-500">
-          BDU XML sync controls land with the BDU worker (separate module).
-        </p>
+      <section className="space-y-3 border-t border-zinc-200 pt-6 dark:border-zinc-800">
+        <BduSyncControls />
       </section>
 
       {error ? (
