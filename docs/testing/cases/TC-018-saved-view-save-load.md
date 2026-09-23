@@ -12,7 +12,7 @@ Module: vulnerabilities / saved-views
 
 ## Steps
 
-1. На `/vulnerabilities` выставить filters + advanced `q` + sort.
+1. На `/app/vulnerabilities` выставить filters + advanced `q` + sort.
 2. Save view с именем `Critical KEV`.
 3. Сбросить UI state.
 4. Load `Critical KEV`.
@@ -28,7 +28,7 @@ Module: vulnerabilities / saved-views
 
 ## Automation
 
-`tests/e2e/saved-views.spec.ts` (planned)
+`tests/e2e/vulnerabilities.spec.ts` (saved views UI; API covered)
 
 ## Last run
 

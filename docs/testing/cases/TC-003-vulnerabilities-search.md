@@ -12,7 +12,7 @@ Module: vulnerabilities
 
 ## Steps
 
-1. Открыть `/vulnerabilities`.
+1. Открыть `/app/vulnerabilities`.
 2. Применить фильтр severity=`critical`.
 3. Включить KEV=`true`.
 4. Ввести advanced query: `severity:high source:nvd cvss31:>=7`.
@@ -29,7 +29,7 @@ Module: vulnerabilities
 
 ## Automation
 
-`tests/e2e/vulnerabilities-search.spec.ts` (planned)
+`tests/e2e/vulnerabilities.spec.ts`
 
 ## Last run
 
