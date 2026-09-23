@@ -49,6 +49,8 @@ services:
       VBX_CORS_ORIGINS: ${VBX_CORS_ORIGINS:-http://localhost,http://127.0.0.1}
       VBX_TIMEZONE: ${VBX_TIMEZONE:-Europe/Moscow}
       TZ: ${VBX_TIMEZONE:-Europe/Moscow}
+    volumes:
+      - vbx_uploads:/app/uploads
     ports:
       - "${VBX_API_PORT:-8000}:8000"
     depends_on:
@@ -67,12 +69,15 @@ services:
     build:
       context: ./apps/api
     restart: unless-stopped
-    command: ["python", "-c", "import time; print('VBX worker stub ready (W0)'); time.sleep(3600*24*365)"]
+    command: ["python", "-m", "app.worker"]
     environment:
       VBX_SECRET_KEY: ${VBX_SECRET_KEY}
       VBX_DATABASE_URL: postgresql+psycopg://vbx:${VBX_POSTGRES_PASSWORD}@postgres:5432/vbx
       VBX_REDIS_URL: redis://:${VBX_REDIS_PASSWORD}@redis:6379/0
+      VBX_NVD_API_KEY: ${VBX_NVD_API_KEY:-}
       TZ: ${VBX_TIMEZONE:-Europe/Moscow}
+    volumes:
+      - vbx_uploads:/app/uploads
     depends_on:
       postgres:
         condition: service_healthy
@@ -106,3 +111,4 @@ services:
 volumes:
   vbx_pg:
   vbx_redis:
+  vbx_uploads:

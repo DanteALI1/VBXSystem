@@ -1,3 +1,4 @@
+from datetime import datetime
 from pydantic import BaseModel, Field
 
 
@@ -159,3 +160,58 @@ class RoleOut(BaseModel):
     code: str
     name: str
     description: str
+
+
+class SyncRunOut(BaseModel):
+    id: int
+    source: str
+    status: str
+    started_at: datetime | None = None
+    finished_at: datetime | None = None
+    stats: dict = {}
+    error: str = ""
+
+
+class DatabaseStatsOut(BaseModel):
+    db_version: str
+    cve_count: int
+    bdu_count: int
+    bdu_mapped: int
+    bdu_standalone: int
+    kev_count: int
+    nvd_mirror_status: str
+    cache_label: str
+    size_label: str
+    last_nvd_new: int = 0
+    last_kev_matches: int = 0
+
+
+class DatabaseSettingsOut(BaseModel):
+    nvd_api_key_masked: str
+    nvd_api_key_configured: bool
+    nvd_auto_update: bool
+    nvd_auto_interval_hours: int
+    nvd_mock_mode: bool
+    last_nvd_sync: SyncRunOut | None = None
+    last_bdu_sync: SyncRunOut | None = None
+    last_kev_sync: SyncRunOut | None = None
+    stats: DatabaseStatsOut
+
+
+class NvdKeyUpdate(BaseModel):
+    api_key: str
+
+
+class AutoUpdateUpdate(BaseModel):
+    enabled: bool
+
+
+class SyncStartOut(BaseModel):
+    run: SyncRunOut | None
+    message: str
+
+
+class BduUploadOut(BaseModel):
+    run: SyncRunOut | None
+    message: str
+    filename: str

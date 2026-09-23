@@ -158,3 +158,108 @@ class AuditLog(Base):
     details: Mapped[str] = mapped_column(Text, default="")
     ip_address: Mapped[str | None] = mapped_column(String(64), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
+
+
+class CveRecord(Base):
+    __tablename__ = "cves"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True)  # CVE-YYYY-NNNN
+    title: Mapped[str] = mapped_column(String(512), default="")
+    description: Mapped[str] = mapped_column(Text, default="")
+    status: Mapped[str] = mapped_column(String(64), default="")
+    source: Mapped[str] = mapped_column(String(128), default="nvd")
+    published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    modified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    cvss_version: Mapped[str] = mapped_column(String(16), default="")
+    cvss_score: Mapped[float | None] = mapped_column(nullable=True)
+    cvss_severity: Mapped[str] = mapped_column(String(32), default="")
+    cvss_vector: Mapped[str] = mapped_column(String(128), default="")
+    is_remote: Mapped[bool] = mapped_column(Boolean, default=False)
+    is_cisa_kev: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
+    cwes: Mapped[str] = mapped_column(Text, default="[]")  # JSON list
+    products: Mapped[str] = mapped_column(Text, default="[]")  # JSON list
+    references_json: Mapped[str] = mapped_column(Text, default="[]")
+    raw_json: Mapped[str] = mapped_column(Text, default="{}")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
+
+
+class BduRecord(Base):
+    __tablename__ = "bdu_records"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)  # BDU:YYYY-NNNNN
+    name: Mapped[str] = mapped_column(String(512), default="")
+    description: Mapped[str] = mapped_column(Text, default="")
+    severity: Mapped[str] = mapped_column(String(64), default="")
+    severity_level: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    status: Mapped[str] = mapped_column(String(64), default="")
+    solution: Mapped[str] = mapped_column(Text, default="")
+    vendors: Mapped[str] = mapped_column(Text, default="")
+    software_names: Mapped[str] = mapped_column(Text, default="")
+    cwes: Mapped[str] = mapped_column(Text, default="")
+    linked_cve_ids: Mapped[str] = mapped_column(Text, default="[]")  # JSON list
+    identify_date: Mapped[str] = mapped_column(String(64), default="")
+    is_standalone: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
+    raw_xml: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
+
+
+class CveBduLink(Base):
+    __tablename__ = "cve_bdu_links"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    cve_id: Mapped[str] = mapped_column(String(32), ForeignKey("cves.id", ondelete="CASCADE"), index=True)
+    bdu_id: Mapped[str] = mapped_column(String(64), ForeignKey("bdu_records.id", ondelete="CASCADE"), index=True)
+
+
+class CisaKev(Base):
+    __tablename__ = "cisa_kev"
+
+    cve_id: Mapped[str] = mapped_column(String(32), primary_key=True)
+    vendor_project: Mapped[str] = mapped_column(String(255), default="")
+    product: Mapped[str] = mapped_column(String(255), default="")
+    vulnerability_name: Mapped[str] = mapped_column(String(512), default="")
+    date_added: Mapped[str] = mapped_column(String(32), default="")
+    due_date: Mapped[str] = mapped_column(String(32), default="")
+    required_action: Mapped[str] = mapped_column(Text, default="")
+    known_ransomware: Mapped[str] = mapped_column(String(64), default="")
+    notes: Mapped[str] = mapped_column(Text, default="")
+    raw_json: Mapped[str] = mapped_column(Text, default="{}")
+
+
+class EpssScore(Base):
+    __tablename__ = "epss_scores"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    cve_id: Mapped[str] = mapped_column(String(32), index=True)
+    score: Mapped[float] = mapped_column(default=0.0)
+    percentile: Mapped[float] = mapped_column(default=0.0)
+    scored_at: Mapped[str] = mapped_column(String(32), default="")
+
+
+class SyncRun(Base):
+    __tablename__ = "sync_runs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    source: Mapped[str] = mapped_column(String(32), index=True)  # nvd | kev | bdu | epss
+    status: Mapped[str] = mapped_column(String(32), default="pending", index=True)
+    # pending | running | success | failed
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    stats_json: Mapped[str] = mapped_column(Text, default="{}")
+    error: Mapped[str] = mapped_column(Text, default="")
+    created_by: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class SourceFile(Base):
+    __tablename__ = "source_files"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    source: Mapped[str] = mapped_column(String(32), default="bdu")
+    filename: Mapped[str] = mapped_column(String(512), default="")
+    stored_path: Mapped[str] = mapped_column(String(1024), default="")
+    size_bytes: Mapped[int] = mapped_column(Integer, default=0)
+    sync_run_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("sync_runs.id", ondelete="SET NULL"), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
