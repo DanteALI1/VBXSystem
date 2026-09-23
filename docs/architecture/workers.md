@@ -6,12 +6,11 @@
 
 | Queue | Назначение | Concurrency (default) |
 |-------|------------|------------------------|
-| `sync:nvd` | Инкрементальная/полная синхронизация NVD API 2.0 | 1 |
-| `sync:bdu` | Парсинг БДУ XML (download или upload) | 1 |
-| `scan:jobs` | Выполнение ScanJob (nmap / nuclei) | 2 |
-| `scan:ingest` | Парсинг артефактов → services/findings | 2 |
+| `nvd-sync` | Инкрементальная/полная синхронизация NVD API 2.0 | 1 |
+| `bdu-sync` | Парсинг БДУ XML (download или upload) | 1 |
+| `scan` | Выполнение ScanJob (nmap / nuclei) + ingest | 1–2 |
 
-Имена могут иметь prefix `vbx:` через `BULLMQ_PREFIX`.
+Имена заданы в `src/lib/queue` (`QUEUE_NAMES`). Опциональный prefix через `BULLMQ_PREFIX` (TODO).
 
 ## Общий контракт job
 
@@ -28,23 +27,34 @@ type JobEnvelope<T> = {
 
 ## NVD Sync Worker
 
+**Код:** `src/lib/sync/nvd/*`, processor `src/workers/nvd/processor.ts`, enqueue `POST /api/settings/sync/nvd`.
+
 ### Вход
 
 - `mode`: `incremental` | `full`
-- `lastModStartDate` / `lastModEndDate` (для incremental — из `SyncState.cursor`)
+- `lastModStartDate` / `lastModEndDate` (для incremental — из `SyncState.cursor` или `NVD_SYNC_DAYS`)
 - опционально: `cveId` для точечного обновления
 
 ### Поведение
 
-1. Читает `SyncState` source=`nvd`.
-2. Вызывает NVD API 2.0 с `NVD_API_KEY` (если задан — выше rate limit).
-3. При HTTP 403/429 — exponential backoff + jitter (см. TC-006); не помечает sync success.
-4. Для каждой CVE: upsert `Vulnerability` по `cveId`, пишет `VulnerabilitySource`, обновляет `localSyncedAt`, CVSS → computed `severity`, KEV/EPSS если доступны в payload/обогащении.
-5. Обновляет cursor и `lastSuccessAt`.
+1. Читает `SyncState` source=`nvd`; ставит `lastAttemptAt`.
+2. Вызывает NVD API 2.0 (`NVD_API_BASE`); optional header `apiKey` из `NVD_API_KEY`.
+3. Пагинация по `startIndex` / `resultsPerPage` / `totalResults`.
+4. При HTTP 403/429 — exponential backoff + jitter (+ `Retry-After`); без ключа — пауза ~6s между успешными запросами (TC-006). Не обновляет `lastSuccessAt` при fail.
+5. Для каждой CVE: upsert `Vulnerability` по `cveId`, пишет `VulnerabilitySource(nvd)`, `VulnerabilityHistory` при изменении полей, `localSyncedAt=now`, upstream `publishedAt`/`updatedAt`, CVSS → `severity` через `@/lib/domain/severity` (max across sources), vendors/products/CWE/CPE/refs/KEV/EPSS если есть.
+6. Обновляет cursor (`lastModEndDate`) и `lastSuccessAt` + meta counts.
 
 ### Идемпотентность
 
-Upsert по `cveId` и checksum raw; повторный прогон не создаёт дублей (TC-005).
+Upsert по `cveId` + unique `(vulnerabilityId, source)`; повторный прогон не создаёт дублей (TC-005). Gate-тесты мокают HTTP поверх `tests/fixtures/nvd-fragment.json` — без реального NIST.
+
+### Локальный запуск
+
+```bash
+pnpm worker
+# enqueue (analyst+ session cookie):
+curl -X POST "$APP_URL/api/settings/sync/nvd" -H "Content-Type: application/json" -d '{"mode":"incremental"}'
+```
 
 ## BDU Sync Worker
 
@@ -112,10 +122,7 @@ Viewer **не** может enqueue sync/scan (TC-002).
 ## Локальный запуск
 
 ```bash
-# TODO Wave 1: точные скрипты
 pnpm worker
-# или
-pnpm --filter worker start
 ```
 
 Redis обязателен (`REDIS_URL`). Без workers UI работает, но sync/scan jobs остаются в `queued`.

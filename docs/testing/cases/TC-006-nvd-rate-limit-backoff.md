@@ -1,32 +1,32 @@
 # TC-006 NVD rate-limit backoff (mock)
 
-Status: draft  
-Type: unit  
+Status: automated  
+Type: integration  
 Priority: P0  
 Module: workers / nvd
 
 ## Preconditions
 
-- HTTP client NVD замокан.
-- Последовательность ответов: 429, 429, 200 (или 403 rate, затем 200).
+- HTTP client NVD замокан (`fetch` inject).
+- Последовательность ответов: 429, 429, 200; отдельный сценарий все 429.
 
 ## Steps
 
-1. Вызвать sync с mock, который дважды возвращает 429 с Retry-After (или без).
-2. Убедиться, что используются exponential backoff + jitter (шпион на sleep/delay).
-3. На финальном 200 — upsert выполняется.
-4. Сценарий исчерпания `NVD_MAX_RETRIES` — все 429.
+1. Вызвать `runNvdSync` с mock, который дважды возвращает 429 с Retry-After.
+2. Убедиться, что `sleep` вызывается (Retry-After / exponential backoff + jitter).
+3. На финальном 200 — upsert выполняется, `SyncState.lastSuccessAt` обновлён.
+4. Сценарий исчерпания `maxRetries` — все 429 → `lastError`, `lastSuccessAt` null.
 
 ## Expected
 
-- Между попытками есть увеличивающиеся задержки (проверяемые границы, не flaky exact ms).
+- Между попытками есть задержки (границы / Retry-After, не flaky wall-clock).
 - Job не помечает `SyncState.lastSuccessAt` при полном fail.
 - При успехе после backoff — success обновлён.
 - При исчерпании ретраев — `lastError` заполнен, controlled fail.
 
 ## Automation
 
-`tests/unit/nvd-backoff.test.ts` (planned)
+`tests/integration/nvd-backoff.test.ts`
 
 ## Last run
 
@@ -34,4 +34,4 @@ Module: workers / nvd
 
 ## Notes
 
-Тип может быть integration, если backoff живёт только в worker pipeline — тогда fake timers обязательны.
+Sleep инжектится no-op collector — без real timers / без сети к NIST.
