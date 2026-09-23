@@ -1,6 +1,6 @@
 # TC-011 Scan rejects outside allowlist
 
-Status: draft  
+Status: automated  
 Type: integration  
 Priority: P0  
 Module: scans
@@ -27,11 +27,11 @@ Module: scans
 
 ## Automation
 
-`tests/integration/allowlist-reject.test.ts` (planned)
+`tests/integration/allowlist-reject.test.ts`
 
 ## Last run
 
-—
+Wave 3
 
 ## Notes
 

@@ -1,10 +1,10 @@
-import { StubPage } from "@/components/app/stub-page";
+import { ScansPageClient } from "@/components/scans/scans-page-client";
+import { getSession, getUserRole, hasMinRole } from "@/lib/auth/rbac";
 
-export default function ScansPage() {
-  return (
-    <StubPage
-      title="Scans"
-      description="Create and review scan jobs."
-    />
-  );
+export default async function ScansPage() {
+  const session = await getSession();
+  const role = getUserRole(session?.user);
+  const canCreate = hasMinRole(role, "analyst");
+
+  return <ScansPageClient canCreate={canCreate} />;
 }

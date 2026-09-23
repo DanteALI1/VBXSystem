@@ -1,6 +1,6 @@
 # TC-012 nmap fixture → services/findings
 
-Status: draft  
+Status: automated  
 Type: integration  
 Priority: P0  
 Module: scans / ingest
@@ -8,7 +8,7 @@ Module: scans / ingest
 ## Preconditions
 
 - Asset существует или создаётся ingest-ом по политике.
-- Фикстура `tests/fixtures/nmap/sample.xml` с открытыми портами 22, 80.
+- Фикстура `tests/fixtures/nmap-sample.xml` с открытыми портами 22, 80.
 - Adapter mode=fixture / прямой вызов ingest.
 
 ## Steps
@@ -26,11 +26,11 @@ Module: scans / ingest
 
 ## Automation
 
-`tests/integration/nmap-ingest.test.ts` (planned)
+`tests/integration/nmap-ingest.test.ts`
 
 ## Last run
 
-—
+Wave 3
 
 ## Notes
 

@@ -1,6 +1,6 @@
 # TC-013 nuclei fixture → findings
 
-Status: draft  
+Status: automated  
 Type: integration  
 Priority: P0  
 Module: scans / ingest
@@ -27,11 +27,11 @@ Module: scans / ingest
 
 ## Automation
 
-`tests/integration/nuclei-ingest.test.ts` (planned)
+`tests/integration/nuclei-ingest.test.ts`
 
 ## Last run
 
-—
+Wave 3
 
 ## Notes
 
