@@ -1,0 +1,238 @@
+from __future__ import annotations
+
+import json
+import shutil
+from datetime import datetime, timezone
+from pathlib import Path
+
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from fastapi.responses import JSONResponse
+from sqlalchemy import func
+from sqlalchemy.orm import Session
+
+from app.api.deps import get_current_user
+from app.db import get_db
+from app.models import BduRecord, CisaKev, CveRecord, SourceFile, SyncRun, User, utcnow
+from app.schemas import (
+    AutoUpdateUpdate,
+    BduUploadOut,
+    DatabaseSettingsOut,
+    DatabaseStatsOut,
+    MessageOut,
+    NvdKeyUpdate,
+    SyncRunOut,
+    SyncStartOut,
+)
+from app.services.auth_helpers import get_setting, set_setting, write_audit
+from app.services.crypto_secrets import decrypt_secret, encrypt_secret, mask_secret
+from app.services.sync_jobs import enqueue_sync, process_sync_run
+
+router = APIRouter(prefix="/settings/database", tags=["database"])
+
+UPLOAD_ROOT = Path("/app/uploads/bdu")
+
+
+def _user_can_manage_db(user: User) -> bool:
+    if user.is_super_admin:
+        return True
+    perms = {p.code for r in user.roles for p in r.permissions}
+    return "vuln:sync" in perms or "settings:write" in perms
+
+
+def _require_db_admin(user: User = Depends(get_current_user)) -> User:
+    if not _user_can_manage_db(user):
+        raise HTTPException(status_code=403, detail="Недостаточно прав")
+    return user
+
+
+def _last_sync(db: Session, source: str) -> SyncRun | None:
+    return (
+        db.query(SyncRun)
+        .filter(SyncRun.source == source, SyncRun.status == "success")
+        .order_by(SyncRun.finished_at.desc())
+        .first()
+    )
+
+
+def _sync_out(run: SyncRun | None) -> SyncRunOut | None:
+    if not run:
+        return None
+    try:
+        stats = json.loads(run.stats_json or "{}")
+    except json.JSONDecodeError:
+        stats = {}
+    return SyncRunOut(
+        id=run.id,
+        source=run.source,
+        status=run.status,
+        started_at=run.started_at,
+        finished_at=run.finished_at,
+        stats=stats,
+        error=run.error or "",
+    )
+
+
+def _build_settings(db: Session) -> DatabaseSettingsOut:
+    enc = get_setting(db, "nvd_api_key_enc", "")
+    plain = decrypt_secret(enc)
+    auto = get_setting(db, "nvd_auto_update", "true") == "true"
+    interval = get_setting(db, "nvd_auto_interval_hours", "2")
+    mock = get_setting(db, "nvd_mock_mode", "true" if not plain else "false") == "true"
+
+    cve_count = db.query(func.count(CveRecord.id)).scalar() or 0
+    bdu_count = db.query(func.count(BduRecord.id)).scalar() or 0
+    bdu_standalone = (
+        db.query(func.count(BduRecord.id)).filter(BduRecord.is_standalone.is_(True)).scalar() or 0
+    )
+    bdu_mapped = bdu_count - bdu_standalone
+    kev_count = db.query(func.count(CisaKev.cve_id)).scalar() or 0
+
+    last_nvd = _last_sync(db, "nvd")
+    last_bdu = _last_sync(db, "bdu")
+    last_kev = _last_sync(db, "kev")
+
+    nvd_stats: dict = {}
+    if last_nvd:
+        try:
+            nvd_stats = json.loads(last_nvd.stats_json or "{}")
+        except json.JSONDecodeError:
+            nvd_stats = {}
+
+    return DatabaseSettingsOut(
+        nvd_api_key_masked=mask_secret(plain) if plain else "",
+        nvd_api_key_configured=bool(plain),
+        nvd_auto_update=auto,
+        nvd_auto_interval_hours=int(interval or "2"),
+        nvd_mock_mode=mock,
+        last_nvd_sync=_sync_out(last_nvd),
+        last_bdu_sync=_sync_out(last_bdu),
+        last_kev_sync=_sync_out(last_kev),
+        stats=DatabaseStatsOut(
+            db_version="v0.2.0",
+            cve_count=cve_count,
+            bdu_count=bdu_count,
+            bdu_mapped=bdu_mapped,
+            bdu_standalone=bdu_standalone,
+            kev_count=kev_count,
+            nvd_mirror_status="Актуален" if last_nvd else "Не синхронизирован",
+            cache_label="—",
+            size_label="—",
+            last_nvd_new=int(nvd_stats.get("upserted") or nvd_stats.get("created") or 0),
+            last_kev_matches=int((nvd_stats.get("kev") or {}).get("matched_cves") or 0),
+        ),
+    )
+
+
+@router.get("", response_model=DatabaseSettingsOut)
+def get_database_settings(
+    db: Session = Depends(get_db),
+    _: User = Depends(_require_db_admin),
+) -> DatabaseSettingsOut:
+    return _build_settings(db)
+
+
+@router.put("/nvd-key", response_model=MessageOut)
+def set_nvd_key(
+    payload: NvdKeyUpdate,
+    db: Session = Depends(get_db),
+    user: User = Depends(_require_db_admin),
+) -> MessageOut:
+    set_setting(db, "nvd_api_key_enc", encrypt_secret(payload.api_key.strip()))
+    set_setting(db, "nvd_mock_mode", "false" if payload.api_key.strip() else "true")
+    write_audit(db, action="database.nvd_key_set", actor_user_id=user.id, resource="nvd")
+    return MessageOut(message="API ключ NVD сохранён")
+
+
+@router.put("/nvd-auto-update", response_model=MessageOut)
+def set_auto_update(
+    payload: AutoUpdateUpdate,
+    db: Session = Depends(get_db),
+    user: User = Depends(_require_db_admin),
+) -> MessageOut:
+    set_setting(db, "nvd_auto_update", "true" if payload.enabled else "false")
+    write_audit(
+        db,
+        action="database.nvd_auto_update",
+        actor_user_id=user.id,
+        details=str(payload.enabled),
+    )
+    return MessageOut(message="Автообновление NVD обновлено")
+
+
+@router.post("/sync/nvd", response_model=SyncStartOut)
+def start_nvd_sync(
+    db: Session = Depends(get_db),
+    user: User = Depends(_require_db_admin),
+) -> SyncStartOut:
+    run = enqueue_sync(db, "nvd", created_by=user.id)
+    process_sync_run(db, run.id)
+    write_audit(db, action="database.sync_nvd", actor_user_id=user.id, resource=f"sync:{run.id}")
+    run = db.get(SyncRun, run.id)
+    return SyncStartOut(run=_sync_out(run), message="Синхронизация NVD завершена")
+
+
+@router.post("/sync/kev", response_model=SyncStartOut)
+def start_kev_sync(
+    db: Session = Depends(get_db),
+    user: User = Depends(_require_db_admin),
+) -> SyncStartOut:
+    run = enqueue_sync(db, "kev", created_by=user.id)
+    process_sync_run(db, run.id)
+    run = db.get(SyncRun, run.id)
+    return SyncStartOut(run=_sync_out(run), message="Синхронизация CISA KEV завершена")
+
+
+@router.post("/bdu/upload", response_model=BduUploadOut)
+async def upload_bdu(
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    user: User = Depends(_require_db_admin),
+) -> BduUploadOut:
+    name = file.filename or "bdu.xml"
+    if not name.lower().endswith(".xml"):
+        raise HTTPException(status_code=400, detail="Сейчас поддерживается XML выгрузка БДУ")
+
+    UPLOAD_ROOT.mkdir(parents=True, exist_ok=True)
+    run = enqueue_sync(db, "bdu", created_by=user.id)
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+    dest = UPLOAD_ROOT / f"{stamp}-{name}"
+    with dest.open("wb") as out:
+        shutil.copyfileobj(file.file, out)
+
+    db.add(
+        SourceFile(
+            source="bdu",
+            filename=name,
+            stored_path=str(dest),
+            size_bytes=dest.stat().st_size,
+            sync_run_id=run.id,
+            created_at=utcnow(),
+        )
+    )
+    db.commit()
+
+    process_sync_run(db, run.id)
+    run = db.get(SyncRun, run.id)
+    write_audit(db, action="database.bdu_upload", actor_user_id=user.id, resource=name)
+    return BduUploadOut(run=_sync_out(run), message="Импорт БДУ выполнен", filename=name)
+
+
+@router.get("/export/cves")
+def export_cves(
+    db: Session = Depends(get_db),
+    user: User = Depends(_require_db_admin),
+):
+    _ = user
+    rows = db.query(CveRecord).order_by(CveRecord.id).limit(5000).all()
+    payload = [
+        {
+            "id": r.id,
+            "description": r.description,
+            "cvss_score": r.cvss_score,
+            "cvss_severity": r.cvss_severity,
+            "is_cisa_kev": r.is_cisa_kev,
+            "published_at": r.published_at.isoformat() if r.published_at else None,
+        }
+        for r in rows
+    ]
+    return JSONResponse(payload)

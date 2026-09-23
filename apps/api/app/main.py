@@ -4,7 +4,14 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import joinedload
 
-from app.api import auth_routes, groups_routes, profile_routes, routes, users_routes
+from app.api import (
+    auth_routes,
+    database_routes,
+    groups_routes,
+    profile_routes,
+    routes,
+    users_routes,
+)
 from app.core.config import get_settings
 from app.db import SessionLocal
 from app.models import User
@@ -38,11 +45,11 @@ def create_app() -> FastAPI:
     app.include_router(profile_routes.router)
     app.include_router(users_routes.router)
     app.include_router(groups_routes.router)
+    app.include_router(database_routes.router)
     return app
 
 
 app = create_app()
 
 
-# Ensure relationship loading helpers stay imported for type checkers
 _ = (User, joinedload, SessionLocal)
