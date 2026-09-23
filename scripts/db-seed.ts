@@ -551,6 +551,12 @@ async function main() {
     await upsertVuln(s, ownerId);
   }
 
+  const { seedSampleFindings } = await import(
+    "../src/lib/findings/seed-sample-findings"
+  );
+  const findingIds = await seedSampleFindings(db);
+  console.log(`Seeded sample findings: ${findingIds.length}`);
+
   const all = await db.select({ id: vulnerabilities.id }).from(vulnerabilities);
   console.log(`Seed complete. vulnerabilities count = ${all.length}`);
 }

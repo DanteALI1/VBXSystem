@@ -1,7 +1,8 @@
-import { asc, eq } from "drizzle-orm";
+import { asc, desc, eq, or, type SQL } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { db } from "@/db";
 import {
+  assets,
   findings,
   vulnerabilities,
   vulnerabilityHistory,
@@ -25,11 +26,29 @@ export async function GET(_request: Request, { params }: Params) {
     .from(vulnerabilityTagLinks)
     .innerJoin(vulnerabilityTags, eq(vulnerabilityTags.id, vulnerabilityTagLinks.tagId))
     .where(eq(vulnerabilityTagLinks.vulnerabilityId, id));
+
+  /** Correlate by direct FK and/or matching CVE / BDU identifiers. */
+  const correlate: SQL[] = [eq(findings.vulnerabilityId, id)];
+  if (row.cveId) correlate.push(eq(findings.cveId, row.cveId));
+  if (row.bduId) correlate.push(eq(findings.bduId, row.bduId));
+
   const relatedFindings = await db
-    .select({ id: findings.id, title: findings.title, status: findings.status, severity: findings.severity })
+    .select({
+      id: findings.id,
+      title: findings.title,
+      status: findings.status,
+      severity: findings.severity,
+      assetId: findings.assetId,
+      assetName: assets.name,
+      cveId: findings.cveId,
+      bduId: findings.bduId,
+      updatedAt: findings.updatedAt,
+    })
     .from(findings)
-    .where(eq(findings.vulnerabilityId, id))
-    .limit(20);
+    .leftJoin(assets, eq(findings.assetId, assets.id))
+    .where(or(...correlate))
+    .orderBy(desc(findings.updatedAt))
+    .limit(50);
 
   const nvd = sources.find((s) => s.source === "nvd");
   const bdu = sources.find((s) => s.source === "bdu");

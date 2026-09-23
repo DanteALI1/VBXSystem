@@ -28,7 +28,7 @@ Page size: `VULN_PAGE_SIZE_DEFAULT` / `VULN_PAGE_SIZE_MAX`.
 
 ## Деталь (Detail)
 
-Секции: Header; Description (метки NVD+BDU); Analysis placeholder; Affected table; Scoring; Weaknesses; References; Linked IDs; Related Findings placeholder; History timeline; Raw JSON collapsible.
+Секции: Header; Description (метки NVD+BDU); Analysis placeholder; Affected table; Scoring; Weaknesses; References; Linked IDs; Related Findings (корреляция по vulnerabilityId / cveId / bduId); History timeline; Raw JSON collapsible.
 
 ## Advanced search syntax
 
