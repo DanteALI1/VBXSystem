@@ -21,9 +21,10 @@ UI: стилистика cvefeed.io, бренд VBX, язык интерфейс
 
 ```
 Субагент W0 VBXSystem. Scope только docs/agents/W0_foundation.md.
-Также прочитай docs/MASTER_PROMPT.md и docs/PRODUCT_SPEC.md (IA + stack + visual).
-Собери монорепо Next.js+FastAPI+Postgres+Redis+Compose, design tokens dark cvefeed-like, RBAC skeleton, seed super_admin.
-Не делай NVD/Search/Tickets. Обнови docs/STATUS.md. Темп: enterprise, без спешки.
+Также прочитай docs/MASTER_PROMPT.md, docs/PRODUCT_SPEC.md, docs/ops/INSTALL_REDOS.md, deploy/redos/*.
+Собери монорепо Next.js+FastAPI+Postgres+Redis+Compose, design tokens dark cvefeed-like, RBAC skeleton, seed super_admin из VBX_ADMIN_*.
+Обязательна совместимость с deploy/redos/install.sh (не ломай VBX_* env и имена сервисов).
+Целевой хост — РЕД ОС minimal + Docker. Не делай NVD/Search/Tickets. Обнови docs/STATUS.md.
 ```
 
 ## W1 Auth & Users

@@ -258,8 +258,11 @@ Toggles + channels (in-app toast/modal, email later):
 
 ## 8. Non-functional requirements
 
-- On-prem Docker Compose
-- Secrets via env / mounted files
+- On-prem Docker Compose на **РЕД ОС 7.3+ (minimal)**
+- Installer «от и до»: `deploy/redos/install.sh` (Docker CE, firewalld, secrets, compose up, отчёт)
+- Конфиг установки: `deploy/redos/vbx.conf.example` → `vbx.conf` с подстановкой org/admin/host
+- Отчёт установки в отдельный файл (`VBX_INSTALL_INFO.txt`, mode 600)
+- Secrets via env / mounted files (`/opt/vbx/config/vbx.env`)
 - Encryption at rest for API keys & tokens
 - Structured audit log (who/when/what/ip)
 - Backup: DB dump + object store
