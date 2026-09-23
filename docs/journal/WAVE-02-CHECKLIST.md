@@ -9,18 +9,18 @@
 
 ## Implementation
 
-- [ ] NVD sync worker + idempotent upsert
-- [ ] NVD rate-limit backoff
+- [x] NVD sync worker + idempotent upsert
+- [x] NVD rate-limit backoff
 - [ ] BDU XML parse + CVE link
 - [ ] BDU upload fallback
-- [ ] Sync settings enqueue (UI/API)
+- [x] Sync settings enqueue (UI/API) — NVD path (`/api/settings/sync/nvd`)
 - [ ] Tags + saved views
 - [ ] Dashboard counters
 
 ## Tests
 
-- [ ] TC-005
-- [ ] TC-006
+- [x] TC-005
+- [x] TC-006
 - [ ] TC-007
 - [ ] TC-008
 - [ ] TC-015

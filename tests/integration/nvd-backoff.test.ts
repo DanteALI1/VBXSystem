@@ -5,7 +5,12 @@ import { drizzle } from "drizzle-orm/postgres-js";
 import { eq } from "drizzle-orm";
 import postgres from "postgres";
 import * as schema from "@/db/schema";
-import { syncState, vulnerabilities, vulnerabilitySources } from "@/db/schema";
+import {
+  syncState,
+  vulnerabilities,
+  vulnerabilityHistory,
+  vulnerabilitySources,
+} from "@/db/schema";
 import {
   computeBackoffMs,
   runNvdSync,
@@ -27,9 +32,10 @@ describe("TC-006 NVD rate-limit backoff (mock)", () => {
   const db = drizzle(client, { schema });
 
   beforeEach(async () => {
+    await db.delete(vulnerabilityHistory);
     await db.delete(vulnerabilitySources);
     await db.delete(vulnerabilities);
-    await db.delete(syncState);
+    await db.delete(syncState).where(eq(syncState.source, "nvd"));
   });
 
   afterAll(async () => {

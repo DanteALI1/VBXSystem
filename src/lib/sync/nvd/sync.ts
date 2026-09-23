@@ -25,23 +25,7 @@ export type RunNvdSyncOptions = {
 };
 
 async function markAttempt(db: Db, now: Date, error?: string) {
-  const existing = await db.query.syncState.findFirst({
-    where: eq(syncState.source, "nvd"),
-  });
-
-  if (existing) {
-    await db
-      .update(syncState)
-      .set({
-        lastAttemptAt: now,
-        lastError: error ?? null,
-        updatedAt: now,
-      })
-      .where(eq(syncState.id, existing.id));
-    return existing;
-  }
-
-  const [created] = await db
+  await db
     .insert(syncState)
     .values({
       source: "nvd",
@@ -49,8 +33,14 @@ async function markAttempt(db: Db, now: Date, error?: string) {
       lastError: error ?? null,
       updatedAt: now,
     })
-    .returning();
-  return created;
+    .onConflictDoUpdate({
+      target: syncState.source,
+      set: {
+        lastAttemptAt: now,
+        lastError: error ?? null,
+        updatedAt: now,
+      },
+    });
 }
 
 async function markSuccess(
@@ -59,59 +49,47 @@ async function markSuccess(
   cursor: string,
   meta: Record<string, unknown>,
 ) {
-  const existing = await db.query.syncState.findFirst({
-    where: eq(syncState.source, "nvd"),
-  });
-
-  if (existing) {
-    await db
-      .update(syncState)
-      .set({
+  await db
+    .insert(syncState)
+    .values({
+      source: "nvd",
+      lastSuccessAt: now,
+      lastAttemptAt: now,
+      lastError: null,
+      cursor,
+      meta,
+      updatedAt: now,
+    })
+    .onConflictDoUpdate({
+      target: syncState.source,
+      set: {
         lastSuccessAt: now,
         lastAttemptAt: now,
         lastError: null,
         cursor,
         meta,
         updatedAt: now,
-      })
-      .where(eq(syncState.id, existing.id));
-    return;
-  }
-
-  await db.insert(syncState).values({
-    source: "nvd",
-    lastSuccessAt: now,
-    lastAttemptAt: now,
-    lastError: null,
-    cursor,
-    meta,
-    updatedAt: now,
-  });
+      },
+    });
 }
 
 async function markFailure(db: Db, now: Date, error: string) {
-  const existing = await db.query.syncState.findFirst({
-    where: eq(syncState.source, "nvd"),
-  });
-
-  if (existing) {
-    await db
-      .update(syncState)
-      .set({
+  await db
+    .insert(syncState)
+    .values({
+      source: "nvd",
+      lastAttemptAt: now,
+      lastError: error,
+      updatedAt: now,
+    })
+    .onConflictDoUpdate({
+      target: syncState.source,
+      set: {
         lastAttemptAt: now,
         lastError: error,
         updatedAt: now,
-      })
-      .where(eq(syncState.id, existing.id));
-    return;
-  }
-
-  await db.insert(syncState).values({
-    source: "nvd",
-    lastAttemptAt: now,
-    lastError: error,
-    updatedAt: now,
-  });
+      },
+    });
 }
 
 function resolveWindow(
@@ -165,9 +143,11 @@ export async function runNvdSync(
 
   await markAttempt(db, now);
 
-  const state = await db.query.syncState.findFirst({
-    where: eq(syncState.source, "nvd"),
-  });
+  const [state] = await db
+    .select()
+    .from(syncState)
+    .where(eq(syncState.source, "nvd"))
+    .limit(1);
 
   const window = resolveWindow(
     payload,
