@@ -17,3 +17,4 @@ coverage/
 .turbo/
 opt/
 VBX_INSTALL_INFO.txt
+test-results/
