@@ -1,6 +1,6 @@
 # TC-001 Login success/fail
 
-Status: automated  
+Status: automated
 Type: e2e  
 Priority: P0  
 Module: auth

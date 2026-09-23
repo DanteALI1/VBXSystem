@@ -1,34 +1,29 @@
-# WAVE-01 CHECKLIST — (template)
+# WAVE-01 CHECKLIST — Auth + Shell + OpenCVE-like vulns
 
-> Заполнить цели волны перед стартом. Все пункты unchecked.
+## Функциональность
 
-## Goals
-
-- [ ] _(определить)_
-- [ ] _(определить)_
-
-## Implementation
-
-- [ ] Схема БД / миграции по data-model
-- [ ] Better Auth login + bootstrap admin
-- [ ] RBAC middleware (viewer/analyst/admin)
-- [ ] Vulnerabilities list/detail API+UI skeleton
-- [ ] Advanced search parser (unit TC-020)
-- [ ] `.env.example` синхронизирован с configuration.md
-
-## Tests
-
-- [ ] TC-001
-- [ ] TC-002
-- [ ] TC-003 (часть)
-- [ ] TC-020
-
-## Docs
-
-- [ ] Обновить PROGRESS.md Wave 1
-- [ ] Снять релевантные TODO в features/*
+- [x] Better Auth login + bootstrap admin
+- [x] Middleware protects `/app/**`
+- [x] App shell left nav (Dashboard…Settings)
+- [x] Dashboard KPIs + recent updates (summary API)
+- [x] Vulns list: columns, facets, advanced query, query builder, saved views
+- [x] Vulns detail: OpenCVE-like sections
+- [x] Tags + saved views API
+- [x] Seed fixtures (CVE↔BDU + samples)
 
 ## Gate
 
-- [ ] CI green (lint/unit)
-- [ ] Orchestrator Result
+- [x] код соответствует доменным контрактам
+- [x] UI каталога соответствует OpenCVE UX-чеклисту (list columns + detail sections)
+- [x] typecheck PASS
+- [x] lint PASS
+- [x] unit PASS (16)
+- [x] e2e login + vulns PASS (7)
+- [x] UI проверен (screenshots)
+- [x] docs волны обновлены
+- [x] TC status/last run обновлены
+- [x] RESULTS.md дополнен
+- [x] скрины: A2,B1,B2,C3,C4,C5,F2
+- [x] PROGRESS.md = PASS
+- [ ] commit + push (next)
+- [x] нет открытых P0

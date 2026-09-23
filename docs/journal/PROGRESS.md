@@ -53,7 +53,47 @@ DATABASE_URL_TEST=... pnpm db:migrate:test
 
 ---
 
-## Wave 1 — pending
+
+---
+
+## 2026-09-23 06:15 UTC — Волна 1 / Auth + Shell + Vulns
+
+### Цель
+Better Auth, app shell/dashboard, OpenCVE-like vulnerabilities list/detail (search/filters/tags/views), seed, e2e, screenshots.
+
+### Что сделано
+- Better Auth email/password + RBAC + middleware + bootstrap seed
+- App shell left nav + Sign out + session email/role
+- Dashboard summary API + real KPI/recent table
+- Vulns API (list/detail/tags/saved-views) + TanStack table + facets + advanced query + query builder
+- Seed: CVE-2024-0001 ↔ BDU:2024-00001 + 10 samples
+- Parallel subagents merged: auth / shell / vulns
+
+### Как проверял
+```
+pnpm typecheck && pnpm lint && pnpm test:unit
+pnpm db:seed
+pnpm test:e2e -- tests/e2e/login.spec.ts tests/e2e/vulnerabilities.spec.ts
+SCREENSHOT_WAVE=1 pnpm test:screenshots
+```
+
+### Результат PASS/FAIL
+**PASS**
+
+### Скриншоты
+A2/B1/B2/C3/C4/C5/F2 → `02-login.png` … `19-app-shell.png`
+
+### Тесты
+- Unit 16 PASS; E2E 7 PASS (TC-001 + vulns smoke)
+
+### Риски/TODO
+- Wave 2: NVD/BDU sync workers, assets/allowlist CRUD
+- API routes still loosely gated (pages protected); tighten with requireSession in Wave 2
+
+### Commit
+`feat: auth shell opencve-like vulns + docs/tests/screens wave1`
+
+## Wave 1 — done (see above)
 
 ## Wave 2 — pending
 

@@ -1,6 +1,6 @@
 # TC-003 Vulnerabilities filters/search (+ advanced query)
 
-Status: draft  
+Status: automated
 Type: e2e  
 Priority: P0  
 Module: vulnerabilities

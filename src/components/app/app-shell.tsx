@@ -2,7 +2,15 @@ import type { ReactNode } from "react";
 import { SidebarNav } from "@/components/app/sidebar-nav";
 import { SignOutButton } from "@/app/app/sign-out-button";
 
-export function AppShell({ children }: { children: ReactNode }) {
+export function AppShell({
+  children,
+  userEmail,
+  userRole,
+}: {
+  children: ReactNode;
+  userEmail?: string | null;
+  userRole?: string | null;
+}) {
   return (
     <div className="flex min-h-screen bg-zinc-50 text-zinc-900 dark:bg-zinc-950 dark:text-zinc-50">
       <aside className="sticky top-0 flex h-screen w-52 shrink-0 flex-col border-r border-zinc-200 bg-zinc-100/90 dark:border-zinc-800 dark:bg-zinc-900/90">
@@ -16,8 +24,23 @@ export function AppShell({ children }: { children: ReactNode }) {
           </div>
         </div>
         <SidebarNav />
-        <div className="mt-auto border-t border-zinc-200 px-3 py-2 dark:border-zinc-800">
-          <p className="text-[10px] text-zinc-500">Wave 1 · shell</p>
+        <div className="mt-auto space-y-1 border-t border-zinc-200 px-3 py-2 dark:border-zinc-800">
+          {userEmail ? (
+            <p
+              className="truncate text-[10px] text-zinc-600 dark:text-zinc-400"
+              data-testid="session-email"
+            >
+              {userEmail}
+            </p>
+          ) : null}
+          {userRole ? (
+            <p
+              className="truncate text-[10px] font-medium uppercase tracking-wide text-zinc-500"
+              data-testid="session-role"
+            >
+              {userRole}
+            </p>
+          ) : null}
         </div>
       </aside>
       <div className="flex min-w-0 flex-1 flex-col">

@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { headers } from "next/headers";
 import { KpiCard } from "@/components/app/kpi-card";
 import { buttonVariants } from "@/components/ui/button";
 import {
@@ -11,16 +12,72 @@ import {
 } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
 
-const KPI_PLACEHOLDERS = [
-  { label: "Vulnerabilities", value: 0, hint: "Total catalog" },
-  { label: "Critical / High", value: "0 / 0", hint: "Severity focus" },
-  { label: "Findings open", value: 0, hint: "Active findings" },
-  { label: "Assets", value: 0, hint: "Inventory" },
-  { label: "Last NVD sync", value: "—", hint: "Never" },
-  { label: "Last BDU sync", value: "—", hint: "Never" },
-] as const;
+type Summary = {
+  vulnerabilitiesTotal: number;
+  critical: number;
+  high: number;
+  findingsOpen: number;
+  assets: number;
+  lastNvdSync: string | null;
+  lastBduSync: string | null;
+  recent: {
+    id: string;
+    cveId: string | null;
+    bduId: string | null;
+    title: string;
+    severity: string | null;
+    localSyncedAt: string | null;
+  }[];
+};
 
-export default function DashboardPage() {
+function fmtSync(v: string | null) {
+  if (!v) return "—";
+  try {
+    return new Date(v).toLocaleString();
+  } catch {
+    return "—";
+  }
+}
+
+async function loadSummary(): Promise<Summary> {
+  const h = await headers();
+  const host = h.get("x-forwarded-host") ?? h.get("host") ?? "localhost:3000";
+  const proto = h.get("x-forwarded-proto") ?? "http";
+  const base = process.env.APP_URL ?? `${proto}://${host}`;
+  const res = await fetch(`${base}/api/dashboard/summary`, {
+    cache: "no-store",
+    headers: { cookie: h.get("cookie") ?? "" },
+  });
+  if (!res.ok) {
+    return {
+      vulnerabilitiesTotal: 0,
+      critical: 0,
+      high: 0,
+      findingsOpen: 0,
+      assets: 0,
+      lastNvdSync: null,
+      lastBduSync: null,
+      recent: [],
+    };
+  }
+  return res.json();
+}
+
+export default async function DashboardPage() {
+  const summary = await loadSummary();
+  const kpis = [
+    { label: "Vulnerabilities", value: summary.vulnerabilitiesTotal, hint: "Total catalog" },
+    {
+      label: "Critical / High",
+      value: `${summary.critical} / ${summary.high}`,
+      hint: "Severity focus",
+    },
+    { label: "Findings open", value: summary.findingsOpen, hint: "Active findings" },
+    { label: "Assets", value: summary.assets, hint: "Inventory" },
+    { label: "Last NVD sync", value: fmtSync(summary.lastNvdSync), hint: "SyncState" },
+    { label: "Last BDU sync", value: fmtSync(summary.lastBduSync), hint: "SyncState" },
+  ] as const;
+
   return (
     <div className="space-y-6">
       <div>
@@ -28,13 +85,13 @@ export default function DashboardPage() {
           Dashboard
         </h1>
         <p className="mt-0.5 text-sm text-zinc-500">
-          Console overview — counters are placeholders until the summary API is wired.
+          Console overview — totals from local catalog and sync state.
         </p>
       </div>
 
       <section aria-label="Key metrics">
         <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
-          {KPI_PLACEHOLDERS.map((kpi) => (
+          {kpis.map((kpi) => (
             <KpiCard
               key={kpi.label}
               label={kpi.label}
@@ -61,14 +118,38 @@ export default function DashboardPage() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                <TableRow>
-                  <TableCell
-                    colSpan={4}
-                    className="h-24 text-center text-zinc-500"
-                  >
-                    No recent updates.
-                  </TableCell>
-                </TableRow>
+                {summary.recent.length === 0 ? (
+                  <TableRow>
+                    <TableCell
+                      colSpan={4}
+                      className="h-24 text-center text-zinc-500"
+                    >
+                      No recent updates.
+                    </TableCell>
+                  </TableRow>
+                ) : (
+                  summary.recent.map((row) => (
+                    <TableRow key={row.id}>
+                      <TableCell className="font-mono text-xs">
+                        <Link
+                          href={`/app/vulnerabilities/${row.id}`}
+                          className="underline-offset-2 hover:underline"
+                        >
+                          {row.cveId ?? row.bduId ?? row.id.slice(0, 8)}
+                        </Link>
+                      </TableCell>
+                      <TableCell className="max-w-[220px] truncate text-xs">
+                        {row.title}
+                      </TableCell>
+                      <TableCell className="text-xs uppercase">
+                        {row.severity ?? "—"}
+                      </TableCell>
+                      <TableCell className="text-xs text-zinc-500">
+                        {fmtSync(row.localSyncedAt)}
+                      </TableCell>
+                    </TableRow>
+                  ))
+                )}
               </TableBody>
             </Table>
           </div>
