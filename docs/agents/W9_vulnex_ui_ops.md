@@ -27,11 +27,11 @@
 - Ломать `VBX_*` env
 
 ## DoD checklist
-- [ ] Compose up; `/health` + `/ready` ok
-- [ ] Login split + branding влияет на login copy
-- [ ] System metrics endpoint + UI
-- [ ] Создаётся LOCAL id, виден в Search
-- [ ] CVE detail NVD/BDU tabs
-- [ ] BDU URL sync работает (хотя бы XML)
-- [ ] pytest зелёный на затронутых тестах
-- [ ] Скриншоты обновлены
+- [x] Compose up; `/health` + `/ready` ok
+- [x] Login split + branding влияет на login copy
+- [x] System metrics endpoint + UI
+- [x] Создаётся LOCAL id, виден в Search
+- [x] CVE detail NVD/BDU tabs
+- [x] BDU URL sync работает (хотя бы XML)
+- [x] pytest зелёный на затронутых тестах
+- [x] Скриншоты обновлены
