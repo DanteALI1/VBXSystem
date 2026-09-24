@@ -31,6 +31,27 @@ jobs:
           docker compose ps
           docker compose logs --tail=100
           exit 1
+      - name: Wait for demo CVE seed
+        run: |
+          for i in $(seq 1 36); do
+            # anonymous search is 401; login then search
+            TOK=$(curl -fsS -X POST http://127.0.0.1:8000/auth/login \
+              -H 'Content-Type: application/json' \
+              -d '{"username":"admin","password":"ChangeMe_StrongPass_123!","device_label":"ci"}' \
+              | python -c 'import sys,json; print(json.load(sys.stdin).get("access_token",""))')
+            if [[ -n "$TOK" ]]; then
+              HIT=$(curl -fsS "http://127.0.0.1:8000/search?q=CVE-2024-0001" \
+                -H "Authorization: Bearer $TOK" \
+                | python -c 'import sys,json; d=json.load(sys.stdin); print(any(h.get("id")=="CVE-2024-0001" for h in d.get("results",[])))')
+              if [[ "$HIT" == "True" ]]; then
+                echo "demo CVE present"
+                exit 0
+              fi
+            fi
+            sleep 5
+          done
+          docker compose logs --tail=80 api
+          exit 1
       - name: API unit tests
         run: |
           cd apps/api
