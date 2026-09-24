@@ -1,7 +1,10 @@
-import { PlaceholderPage } from "@/components/PlaceholderPage";
+import { Suspense } from "react";
+import TicketsPage from "./TicketsClient";
 
 export default function Page() {
   return (
-    <PlaceholderPage title="Заявки" description="Внутренняя система заявок — волна W7." />
+    <Suspense fallback={<div className="text-sm text-muted">Загрузка заявок…</div>}>
+      <TicketsPage />
+    </Suspense>
   );
 }

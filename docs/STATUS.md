@@ -8,22 +8,16 @@
 | W3 | Search & Detail | DONE | Search + CVE/BDU cards, KEV highlight |
 | W4 | Dashboard / EPSS / CVEQL | DONE | KPI dashboard, EPSS, CVEQL subset |
 | W5 | XDB Exploits | DONE | Metadata catalog + CSV/JSON import |
-| W6 | Settings suite | **DONE** | Notifications, Security, Integrations, API keys |
-| W7 | Tickets | pending | Depends on W1, W3 |
+| W6 | Settings suite | DONE | Notifications, Security, Integrations, API keys |
+| W7 | Tickets | **DONE** | Internal vuln queue + workflow |
 | W8 | Hardening & E2E | pending | Прогон install.sh на чистой РЕД ОС |
 
 Last updated: 2026-09-24
 
-## W6 acceptance
-- `/settings/notifications` — per-user prefs
-- `/settings/security` — force 2FA, device alerts, mTLS CA/docs, audit viewer
-- `/settings/integrations` — SMTP (MailHog), LDAP mock sync→groups, SSO config
-- `/settings/api-keys` — create/revoke; Bearer/`X-API-Key` auth for `vuln:read`
-- Secrets encrypted at rest; audit on admin actions
-- Pytest `tests/test_settings_suite.py`; MailHog service in compose
-
-## W5 acceptance
-- Model `exploits` + alembic `0004_xdb`
-- `GET /xdb` — search/filters, import JSON/CSV/sample
-- CVE detail `exploits[]`; UI `/xdb`
-- Pytest `tests/test_xdb.py`
+## W7 acceptance
+- Models: tickets, ticket_comments, ticket_events, ticket_attachments (+ alembic `0006_tickets`)
+- API: list/filter, create (CVE/BDU), status transitions, assign (manage), comments, timeline
+- UI: `/tickets`, `/tickets/[id]`; create from CVE/BDU (`?cve=` / `?bdu=`)
+- RBAC: viewer read-limited; analyst write; ticket_manager/admin assign/close
+- Duplicate open-ticket warning; audit on create/status/assign
+- Pytest `tests/test_tickets.py`
