@@ -126,6 +126,7 @@ export default function VulnDetailPage() {
   const [data, setData] = useState<CveDetail | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [descTab, setDescTab] = useState<"nvd" | "bdu">("nvd");
 
   useEffect(() => {
     if (!cveId) return;
@@ -244,7 +245,50 @@ export default function VulnDetailPage() {
       <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_340px]">
         <div className="min-w-0 space-y-5">
           <Section title="Description">
-            <p className="whitespace-pre-wrap text-sm leading-relaxed text-muted">{data.description}</p>
+            <div className="mb-3 flex gap-1 rounded-xl bg-surface2/60 p-1">
+              {(["nvd", "bdu"] as const).map((tab) => {
+                const disabled = tab === "bdu" && data.bdu.length === 0;
+                const active = descTab === tab;
+                return (
+                  <button
+                    key={tab}
+                    type="button"
+                    disabled={disabled}
+                    onClick={() => setDescTab(tab)}
+                    className={`rounded-lg px-3 py-1.5 text-xs font-medium transition ${
+                      active
+                        ? "bg-accent/20 text-accent2"
+                        : disabled
+                          ? "cursor-not-allowed text-muted/40"
+                          : "text-muted hover:text-text"
+                    }`}
+                  >
+                    {tab === "nvd" ? "NVD" : "БДУ"}
+                  </button>
+                );
+              })}
+            </div>
+            {descTab === "nvd" ? (
+              <p className="whitespace-pre-wrap text-sm leading-relaxed text-muted">
+                {data.description || "Нет описания NVD."}
+              </p>
+            ) : (
+              <div className="space-y-4">
+                {data.bdu.map((b) => (
+                  <div key={b.id} className="rounded-xl border border-border/70 bg-surface2/30 p-3">
+                    <div className="mb-2 flex flex-wrap items-center gap-2">
+                      <Link href={`/bdu/${encodeURIComponent(b.id)}`} className="font-mono text-sm text-accent2 hover:underline">
+                        {b.id}
+                      </Link>
+                      {b.severity ? <Badge tone={severityTone(b.severity)}>{b.severity}</Badge> : null}
+                    </div>
+                    <p className="whitespace-pre-wrap text-sm leading-relaxed text-muted">
+                      {b.description || "Нет описания БДУ."}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            )}
           </Section>
 
           {data.kev && (
@@ -368,16 +412,30 @@ export default function VulnDetailPage() {
                       {b.status && <Badge>{b.status}</Badge>}
                     </div>
                     {b.name && <p className="mt-1 text-sm font-medium">{b.name}</p>}
-                    {b.description && <p className="mt-2 text-sm text-muted">{b.description}</p>}
+                    <dl className="mt-3 grid gap-2 text-sm sm:grid-cols-2">
+                      <div>
+                        <dt className="text-xs text-muted">Вендор</dt>
+                        <dd className="mt-0.5">{b.vendors || "—"}</dd>
+                      </div>
+                      <div>
+                        <dt className="text-xs text-muted">ПО</dt>
+                        <dd className="mt-0.5">{b.software_names || "—"}</dd>
+                      </div>
+                      <div>
+                        <dt className="text-xs text-muted">Дата выявления</dt>
+                        <dd className="mt-0.5">{b.identify_date || "—"}</dd>
+                      </div>
+                      <div>
+                        <dt className="text-xs text-muted">Статус БДУ</dt>
+                        <dd className="mt-0.5">{b.status || "—"}</dd>
+                      </div>
+                    </dl>
                     {b.solution && (
-                      <p className="mt-2 text-sm">
+                      <p className="mt-3 text-sm">
                         <span className="text-muted">Решение: </span>
                         {b.solution}
                       </p>
                     )}
-                    <p className="mt-2 text-xs text-muted">
-                      {[b.vendors, b.software_names, b.identify_date].filter(Boolean).join(" · ")}
-                    </p>
                   </div>
                 ))}
               </div>

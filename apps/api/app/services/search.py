@@ -6,7 +6,8 @@ from datetime import datetime, timedelta, timezone
 from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 
-from app.models import BduRecord, CisaKev, CveBduLink, CveRecord, EpssScore
+from app.models import BduRecord, CisaKev, CveBduLink, CveRecord, EpssScore, LocalVuln
+from app.services.local_vulns import local_to_search_hit
 from app.services.xdb import exploits_for_cve
 
 
@@ -185,6 +186,26 @@ def search_vulnerabilities(
             }
         )
 
+    # Local vulns (skip when kev/has_bdu-only filters)
+    local_items: list[dict] = []
+    if not kev_only and not has_bdu:
+        local_q = db.query(LocalVuln)
+        if q:
+            like = f"%{q}%"
+            local_q = local_q.filter(
+                or_(
+                    LocalVuln.id.ilike(like),
+                    LocalVuln.title.ilike(like),
+                    LocalVuln.description.ilike(like),
+                    LocalVuln.vendor.ilike(like),
+                    LocalVuln.product_name.ilike(like),
+                )
+            )
+        if severity:
+            local_q = local_q.filter(func.upper(LocalVuln.severity) == severity.upper())
+        for row in local_q.order_by(LocalVuln.created_at.desc()).limit(200).all():
+            local_items.append(local_to_search_hit(row))
+
     # Merge: KEV CVEs first within published ordering already applied; insert BDU after CVEs matching q
     if has_bdu:
         # already filtered CVEs; still include standalone BDU
@@ -193,9 +214,11 @@ def search_vulnerabilities(
         mixed = cve_items + ([] if severity or date_preset else bdu_items)
         # if severity/date filters are CVE-centric, still allow BDU when q matches and no severity conflict
         if q and not kev_only:
-            mixed = cve_items + bdu_items
+            mixed = cve_items + bdu_items + local_items
+        else:
+            mixed = cve_items + local_items
     else:
-        mixed = cve_items + bdu_items
+        mixed = cve_items + bdu_items + local_items
 
     if sort == "cvss":
         mixed.sort(key=lambda x: (x.get("cvss_score") is not None, x.get("cvss_score") or 0), reverse=True)

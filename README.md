@@ -78,7 +78,16 @@ bash deploy/redos/validate-install.sh
 
 ![API keys](docs/screenshots/17_settings_api_keys.png)
 
-Карточка CVE включает блок **Vulnerability Scoring Details** (как на cvefeed): score/severity, remotely exploitable, вектор, radar метрик и разбор AV/AC/PR/UI/S/C/I/A.
+| Брендинг | Система |
+|----------|---------|
+| ![Branding](docs/screenshots/18_settings_branding.png) | ![System](docs/screenshots/19_settings_system.png) |
+
+| Локальная запись | CVE NVD/БДУ tabs |
+|------------------|------------------|
+| ![Local](docs/screenshots/20_local_detail.png) | *(см. CVE detail)* |
+
+Карточка CVE включает блок **Vulnerability Scoring Details** (как на cvefeed): score/severity, remotely exploitable, вектор, radar метрик и разбор AV/AC/PR/UI/S/C/I/A.  
+W9 добавил login split-layout, брендинг, метрики хоста, локальные ID `VBX-YYYY-NNNN`, sync БДУ по URL.
 
 ## Установка на РЕД ОС (minimal)
 
@@ -120,4 +129,5 @@ npm install && npx playwright install chromium && npm run test:e2e
 
 ## Статус
 
-Все волны **W0–W8** закрыты — см. [docs/STATUS.md](docs/STATUS.md).
+Волны **W0–W8** закрыты; **W9** (обогащение из VULNEX) — DONE.  
+План W10–W11: [docs/ENRICHMENT_FROM_VULNEX.md](docs/ENRICHMENT_FROM_VULNEX.md) · статус [docs/STATUS.md](docs/STATUS.md).

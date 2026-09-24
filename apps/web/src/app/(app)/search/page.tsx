@@ -94,11 +94,19 @@ export default function SearchPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="vbx-page-title">Security Vulnerability Database</h1>
-        <p className="vbx-page-sub">
-          Поиск CVE и записей БДУ ФСТЭК. Строки CISA KEV выделены янтарным акцентом.
-        </p>
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <h1 className="vbx-page-title">Security Vulnerability Database</h1>
+          <p className="vbx-page-sub">
+            Поиск CVE, БДУ ФСТЭК и локальных ID. Строки CISA KEV выделены янтарным акцентом.
+          </p>
+        </div>
+        <Link
+          href="/local/new"
+          className="inline-flex items-center rounded-xl bg-accent px-3 py-2 text-sm font-medium text-white hover:bg-accent2"
+        >
+          + Локальная запись
+        </Link>
       </div>
 
       <form onSubmit={onSubmit} className="flex flex-col gap-3 lg:flex-row lg:items-end">
@@ -243,6 +251,11 @@ export default function SearchPage() {
                         {hit.kind === "bdu" && (
                           <Badge tone="accent" aria-label="Запись БДУ">
                             БДУ
+                          </Badge>
+                        )}
+                        {hit.kind === "local" && (
+                          <Badge tone="accent" aria-label="Локальная запись">
+                            LOCAL
                           </Badge>
                         )}
                         {hit.severity && (

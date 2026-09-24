@@ -194,6 +194,7 @@ class DatabaseSettingsOut(BaseModel):
     nvd_auto_update: bool
     nvd_auto_interval_hours: int
     nvd_mock_mode: bool
+    bdu_xml_url: str = ""
     last_nvd_sync: SyncRunOut | None = None
     last_bdu_sync: SyncRunOut | None = None
     last_kev_sync: SyncRunOut | None = None
@@ -206,6 +207,10 @@ class NvdKeyUpdate(BaseModel):
 
 class AutoUpdateUpdate(BaseModel):
     enabled: bool
+
+
+class BduUrlUpdate(BaseModel):
+    bdu_xml_url: str = ""
 
 
 class SyncStartOut(BaseModel):

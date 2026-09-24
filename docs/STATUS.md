@@ -10,9 +10,22 @@
 | W5 | XDB Exploits | DONE | Metadata catalog + CSV/JSON import |
 | W6 | Settings suite | DONE | Notifications, Security, Integrations, API keys |
 | W7 | Tickets | DONE | Internal vuln queue + workflow |
-| W8 | Hardening & E2E | **DONE** | Headers, upload limits, backup/ops docs, smoke E2E |
+| W8 | Hardening & E2E | DONE | Headers, upload limits, backup/ops docs, smoke E2E |
+| W9 | VULNEX UI & Ops enrich | **DONE** | Login split, branding, system metrics, local IDs, BDU URL, NVD/BDU tabs |
+| W10 | Setup wizard | PENDING | First-run wizard (no license) |
+| W11 | Notify & SLA | PENDING | Telegram + ticket SLA |
 
 Last updated: 2026-09-24
+
+## W9 acceptance (VULNEX enrichment)
+- Docs: `ENRICHMENT_FROM_VULNEX.md`, agents W9–W11, AGENT_LAUNCH prompts
+- Login: two-column brand panel + form; public `GET /branding`
+- Settings → Брендинг / Система (psutil metrics)
+- Local vulns `VBX-YYYY-NNNN` + Search + `/local/new` + detail
+- CVE detail: NVD | БДУ description tabs; richer BDU field grid
+- Database: BDU XML URL save + sync-by-URL
+- Migration `0007_local_vulns`; pytest `test_w9_enrichment.py`
+- `scripts/fix-docker-bridge.sh` for bridge hairpin on cloud VMs
 
 ## W8 acceptance
 - Security headers middleware + optional `VBX_TRUSTED_HOSTS`; CORS methods/headers narrowed

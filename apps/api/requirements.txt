@@ -18,3 +18,4 @@ pyotp==2.9.0
 qrcode==8.0
 pillow==11.0.0
 python-multipart==0.0.20
+psutil==6.1.1

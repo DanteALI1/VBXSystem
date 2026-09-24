@@ -265,6 +265,41 @@ class SourceFile(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
+class LocalIdSequence(Base):
+    """Yearly sequence for internal vulnerability IDs (VBX-YYYY-NNNN)."""
+
+    __tablename__ = "local_id_sequences"
+    __table_args__ = (UniqueConstraint("prefix", "year", name="uq_local_id_prefix_year"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    prefix: Mapped[str] = mapped_column(String(16), default="VBX")
+    year: Mapped[int] = mapped_column(Integer)
+    last_number: Mapped[int] = mapped_column(Integer, default=0)
+
+
+class LocalVuln(Base):
+    """Organization-local vulnerability card (no CVE/BDU)."""
+
+    __tablename__ = "local_vulns"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)  # VBX-2026-0001
+    title: Mapped[str] = mapped_column(String(512), default="")
+    description: Mapped[str] = mapped_column(Text, default="")
+    severity: Mapped[str] = mapped_column(String(32), default="MEDIUM", index=True)
+    status: Mapped[str] = mapped_column(String(64), default="open")
+    vendor: Mapped[str] = mapped_column(Text, default="")
+    product_name: Mapped[str] = mapped_column(Text, default="")
+    remediation: Mapped[str] = mapped_column(Text, default="")
+    linked_cve_ids: Mapped[str] = mapped_column(Text, default="[]")
+    created_by_id: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow
+    )
+
+
 class ExploitRecord(Base):
     """XDB-style exploit metadata only (links/refs — no payloads)."""
 

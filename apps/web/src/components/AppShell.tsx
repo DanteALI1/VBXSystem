@@ -64,7 +64,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               pathname === item.href ||
               pathname.startsWith(item.href + "/") ||
               (item.href === "/search" &&
-                (pathname.startsWith("/vuln/") || pathname.startsWith("/bdu/")));
+                (pathname.startsWith("/vuln/") ||
+                  pathname.startsWith("/bdu/") ||
+                  pathname.startsWith("/local/")));
             const Icon = item.icon;
             return (
               <Link

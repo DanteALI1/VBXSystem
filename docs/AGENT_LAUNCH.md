@@ -86,3 +86,41 @@ Notifications, Security (force 2FA, new device alerts, mTLS API, audit viewer), 
 Субагент W8 VBXSystem. Scope только docs/agents/W8_hardening.md.
 Security hardening, backup/restore, ops/user docs, Playwright E2E, финальный README. Без новых фич. Закрой exit criteria MASTER_PROMPT §6.
 ```
+
+---
+
+## Обогащение из VULNEX (после W8)
+
+См. `docs/ENRICHMENT_FROM_VULNEX.md`. Не смешивать с W0–W8.
+
+### Оркестратор обогащения
+
+```
+Ты оркестратор обогащения VBXSystem из VULNEX.
+Прочитай docs/MASTER_PROMPT.md, docs/ENRICHMENT_FROM_VULNEX.md, docs/STATUS.md.
+Запускай только следующую волну W9/W10/W11 по docs/agents/Wn_*.md.
+UI: cvefeed dark, бренд VBX, RU. Не портируй Django/NovaTIP/лицензии.
+После DoD — тесты, скриншоты, STATUS.md. Compose /health /ready ok.
+```
+
+### W9 VULNEX UI & Ops
+
+```
+Субагент W9 VBXSystem. Scope только docs/agents/W9_vulnex_ui_ops.md.
+Login split + branding + system metrics + local IDs + CVE NVD/BDU tabs + BDU URL sync.
+Референс идей: DanteALI1/VULNEX. Не делай wizard/Telegram/SLA. Обнови STATUS и screenshots.
+```
+
+### W10 Setup wizard
+
+```
+Субагент W10 VBXSystem. Scope только docs/agents/W10_setup_wizard.md.
+First-run wizard без license. Переиспользуй branding/database из W9. Обнови STATUS.md.
+```
+
+### W11 Notify & SLA
+
+```
+Субагент W11 VBXSystem. Scope только docs/agents/W11_notify_sla.md.
+Telegram + ticket SLA + confirm-close. Обнови STATUS.md.
+```
