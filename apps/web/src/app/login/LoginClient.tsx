@@ -78,61 +78,71 @@ export default function LoginClient() {
   }
 
   return (
-    <div className="grid min-h-screen place-items-center px-4">
-      <Card className="w-full max-w-md">
-        <div className="mb-6 flex items-center gap-3">
-          <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-accent/20 text-accent2">
-            <Shield size={22} />
+    <div className="relative grid min-h-screen place-items-center px-4 py-10">
+      <div
+        aria-hidden
+        className="pointer-events-none absolute inset-0 bg-[radial-gradient(800px_400px_at_50%_-10%,rgba(59,130,246,0.22),transparent_60%)]"
+      />
+      <div className="relative w-full max-w-md vbx-fade-in">
+        <div className="mb-8 text-center">
+          <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-accent to-accent2 text-white shadow-soft">
+            <Shield size={28} />
           </div>
-          <div>
-            <h1 className="font-display text-2xl font-semibold tracking-tight">VBXSystem</h1>
-            <p className="text-sm text-muted">
-              {tempToken ? "Двухфакторная аутентификация" : "Вход в систему"}
-            </p>
-          </div>
+          <h1 className="font-display text-3xl font-semibold tracking-tight text-text">VBX</h1>
+          <p className="mt-1 text-sm text-muted">Vulnerability Intelligence Platform</p>
         </div>
-        <form className="space-y-4" onSubmit={onSubmit}>
-          {!tempToken ? (
-            <>
+        <Card className="border-border/80 shadow-soft">
+          <h2 className="mb-1 font-display text-lg font-semibold">
+            {tempToken ? "Двухфакторная аутентификация" : "Вход в систему"}
+          </h2>
+          <p className="mb-5 text-sm text-muted">
+            {tempToken
+              ? "Введите код из приложения-аутентификатора"
+              : "Корпоративный доступ к базе уязвимостей"}
+          </p>
+          <form className="space-y-4" onSubmit={onSubmit}>
+            {!tempToken ? (
+              <>
+                <Input
+                  label="Логин или email"
+                  name="username"
+                  autoComplete="username"
+                  value={username}
+                  onChange={(e) => setUsername(e.target.value)}
+                  required
+                />
+                <Input
+                  label="Пароль"
+                  name="password"
+                  type="password"
+                  autoComplete="current-password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  required
+                />
+              </>
+            ) : (
               <Input
-                label="Логин или email"
-                name="username"
-                autoComplete="username"
-                value={username}
-                onChange={(e) => setUsername(e.target.value)}
+                label="Код из приложения / recovery"
+                name="totp"
+                value={totpCode}
+                onChange={(e) => setTotpCode(e.target.value)}
                 required
               />
-              <Input
-                label="Пароль"
-                name="password"
-                type="password"
-                autoComplete="current-password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                required
-              />
-            </>
-          ) : (
-            <Input
-              label="Код из приложения / recovery"
-              name="totp"
-              value={totpCode}
-              onChange={(e) => setTotpCode(e.target.value)}
-              required
-            />
-          )}
-          {error ? <p className="text-sm text-danger">{error}</p> : null}
-          <Button type="submit" className="w-full" disabled={loading}>
-            {loading ? "Проверка…" : tempToken ? "Подтвердить" : "Войти"}
-          </Button>
-        </form>
-        <p className="mt-4 text-sm text-muted">
-          Нет аккаунта?{" "}
-          <Link href="/register" className="text-accent2 hover:underline">
-            Регистрация
-          </Link>
-        </p>
-      </Card>
+            )}
+            {error ? <p className="text-sm text-danger">{error}</p> : null}
+            <Button type="submit" className="w-full" disabled={loading}>
+              {loading ? "Проверка…" : tempToken ? "Подтвердить" : "Войти"}
+            </Button>
+          </form>
+          <p className="mt-5 text-center text-sm text-muted">
+            Нет аккаунта?{" "}
+            <Link href="/register" className="text-accent2 hover:underline">
+              Регистрация
+            </Link>
+          </p>
+        </Card>
+      </div>
     </div>
   );
 }
