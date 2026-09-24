@@ -3,6 +3,8 @@
 Локальная enterprise-платформа vulnerability intelligence
 (NVD + БДУ ФСТЭК + CISA KEV + EPSS + XDB + заявки).
 
+UI в стилистике [cvefeed.io](https://cvefeed.io/) (тёмная тема, плотные data-views), бренд **VBX**, интерфейс на русском.
+
 ```
                     ┌─────────────┐
    Browser ────────►│  web (Next) │
@@ -14,8 +16,6 @@
               ┌────────▼─┐  ┌──▼─────┐
               │ Postgres │  │ Redis  │
               └──────────┘  └────────┘
-                    ▲
-              uploads volume (BDU XML)
 ```
 
 ## Быстрый старт (Docker)
@@ -33,6 +33,52 @@ curl -s http://localhost:8000/health
 curl -s http://localhost:8000/ready
 bash deploy/redos/validate-install.sh
 ```
+
+## Скриншоты UI
+
+### Auth
+
+| Login | Register |
+|-------|----------|
+| ![Login](docs/screenshots/01_login.png) | ![Register](docs/screenshots/02_register.png) |
+
+### Основные разделы
+
+| Dashboard | Search |
+|-----------|--------|
+| ![Dashboard](docs/screenshots/03_dashboard.png) | ![Search](docs/screenshots/04_search.png) |
+
+| CVE detail + Scoring | BDU detail |
+|----------------------|------------|
+| ![CVE](docs/screenshots/05_cve_detail.png) | ![BDU](docs/screenshots/06_bdu_detail.png) |
+
+![Vulnerability Scoring Details](docs/screenshots/05b_cve_scoring_details.png)
+
+| CVEQL | EPSS |
+|-------|------|
+| ![CVEQL](docs/screenshots/07_cveql.png) | ![EPSS](docs/screenshots/08_epss.png) |
+
+| Exploits (XDB) | Заявки |
+|----------------|--------|
+| ![XDB](docs/screenshots/09_xdb.png) | ![Tickets](docs/screenshots/10_tickets.png) |
+
+### Настройки
+
+| Профиль | Пользователи |
+|---------|--------------|
+| ![Profile](docs/screenshots/11_settings_profile.png) | ![Users](docs/screenshots/12_settings_users.png) |
+
+| Уведомления | Безопасность |
+|-------------|--------------|
+| ![Notifications](docs/screenshots/13_settings_notifications.png) | ![Security](docs/screenshots/14_settings_security.png) |
+
+| База данных (NVD/BDU) | Интеграции |
+|-----------------------|------------|
+| ![Database](docs/screenshots/15_settings_database.png) | ![Integrations](docs/screenshots/16_settings_integrations.png) |
+
+![API keys](docs/screenshots/17_settings_api_keys.png)
+
+Карточка CVE включает блок **Vulnerability Scoring Details** (как на cvefeed): score/severity, remotely exploitable, вектор, radar метрик и разбор AV/AC/PR/UI/S/C/I/A.
 
 ## Установка на РЕД ОС (minimal)
 
@@ -56,24 +102,20 @@ sudo less /opt/vbx/VBX_INSTALL_INFO.txt
 ## Структура
 
 ```
-apps/api      FastAPI + Alembic + RBAC seed
-apps/web      Next.js (App Router), UI в стилистике cvefeed
-packages/     shared contracts
-deploy/redos  установщик РЕД ОС + validate-install.sh
-scripts/      backup / restore
-docs/         спецификация, волны, ops
-e2e/          Playwright (smoke + модули)
+apps/api           FastAPI + Alembic + RBAC seed
+apps/web           Next.js (App Router), UI в стилистике cvefeed
+deploy/redos       установщик РЕД ОС + validate-install.sh
+scripts/           backup / restore
+docs/              спецификация, волны, ops
+docs/screenshots/  галерея UI
+e2e/               Playwright
 ```
 
 ## Тесты
 
 ```bash
-# API
 cd apps/api && pip install -r requirements.txt && pytest -q
-
-# E2E (стек уже поднят)
-npm install && npx playwright install chromium
-npm run test:e2e
+npm install && npx playwright install chromium && npm run test:e2e
 ```
 
 ## Статус

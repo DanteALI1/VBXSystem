@@ -107,6 +107,15 @@ def seed_mock_cves(db: Session) -> dict:
             "score": 9.8,
             "severity": "CRITICAL",
             "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H",
+            "cwes": ["CWE-94"],
+            "products": [
+                "cpe:2.3:a:examplesoft:examplesoft:1.0:*:*:*:*:*:*:*",
+                "cpe:2.3:a:examplesoft:examplesoft:1.1:*:*:*:*:*:*:*",
+            ],
+            "refs": [
+                "https://nvd.nist.gov/vuln/detail/CVE-2024-0001",
+                "https://example.com/advisory/examplesoft-rce",
+            ],
         },
         {
             "id": "CVE-2024-0002",
@@ -114,6 +123,9 @@ def seed_mock_cves(db: Session) -> dict:
             "score": 7.8,
             "severity": "HIGH",
             "vector": "CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:H",
+            "cwes": ["CWE-269"],
+            "products": ["cpe:2.3:a:localvendor:localagent:2.0:*:*:*:*:*:*:*"],
+            "refs": ["https://nvd.nist.gov/vuln/detail/CVE-2024-0002"],
         },
         {
             "id": "CVE-2023-44487",
@@ -121,36 +133,46 @@ def seed_mock_cves(db: Session) -> dict:
             "score": 7.5,
             "severity": "HIGH",
             "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H",
+            "cwes": ["CWE-400"],
+            "products": [
+                "cpe:2.3:a:apache:http_server:*:*:*:*:*:*:*:*",
+                "cpe:2.3:a:nginx:nginx:*:*:*:*:*:*:*:*",
+            ],
+            "refs": [
+                "https://www.cisa.gov/known-exploited-vulnerabilities-catalog",
+                "https://nvd.nist.gov/vuln/detail/CVE-2023-44487",
+            ],
         },
     ]
     created = 0
     for s in samples:
-        if db.get(CveRecord, s["id"]):
-            continue
-        db.add(
-            CveRecord(
-                id=s["id"],
-                title=s["id"],
-                description=s["description"],
-                status="Analyzed",
-                source="nvd-mock",
-                published_at=datetime(2024, 1, 1, tzinfo=timezone.utc),
-                modified_at=datetime(2024, 1, 2, tzinfo=timezone.utc),
-                cvss_version="3.1",
-                cvss_score=s["score"],
-                cvss_severity=s["severity"],
-                cvss_vector=s["vector"],
-                is_remote="AV:N" in s["vector"],
-                is_cisa_kev=False,
-                cwes=json.dumps(["CWE-94"]),
-                products=json.dumps([]),
-                references_json=json.dumps([]),
-                raw_json="{}",
-            )
+        existing = db.get(CveRecord, s["id"])
+        fields = dict(
+            title=s["id"],
+            description=s["description"],
+            status="Analyzed",
+            source="nvd-mock",
+            published_at=datetime(2024, 1, 1, tzinfo=timezone.utc),
+            modified_at=datetime(2024, 1, 2, tzinfo=timezone.utc),
+            cvss_version="3.1",
+            cvss_score=s["score"],
+            cvss_severity=s["severity"],
+            cvss_vector=s["vector"],
+            is_remote="AV:N" in s["vector"],
+            cwes=json.dumps(s.get("cwes") or ["CWE-94"]),
+            products=json.dumps(s.get("products") or []),
+            references_json=json.dumps(s.get("refs") or []),
+            raw_json="{}",
         )
-        created += 1
+        if existing:
+            for k, v in fields.items():
+                setattr(existing, k, v)
+            # keep kev flag
+        else:
+            db.add(CveRecord(id=s["id"], is_cisa_kev=False, created_at=utcnow(), **fields))
+            created += 1
     db.commit()
-    return {"created": created, "mode": "mock", "total": len(samples)}
+    return {"created": created, "mode": "mock", "total": len(samples), "updated": len(samples) - created}
 
 
 def run_nvd_sync(db: Session, *, results_per_page: int = 50, max_pages: int = 2) -> dict:

@@ -2,12 +2,13 @@
 
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { useEffect, useState } from "react";
-import { AlertTriangle, ExternalLink, Ticket } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { AlertTriangle, ExternalLink, Ticket, ArrowLeft, Share2 } from "lucide-react";
 import { api } from "@/lib/api";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
+import { CvssScoringDetails } from "@/components/CvssScoringDetails";
 import { formatDate, severityTone } from "@/lib/severity";
 
 type CveDetail = {
@@ -71,6 +72,54 @@ function refUrl(ref: unknown): string | null {
   return null;
 }
 
+function productLabel(p: unknown): string {
+  if (typeof p === "string") return p;
+  if (p && typeof p === "object") {
+    const o = p as Record<string, unknown>;
+    return String(o.criteria || o.product || o.name || JSON.stringify(p));
+  }
+  return String(p);
+}
+
+function groupProducts(products: unknown[]): Record<string, string[]> {
+  const groups: Record<string, string[]> = {};
+  for (const p of products) {
+    const label = productLabel(p);
+    // CPE 2.3: cpe:2.3:a:vendor:product:...
+    const m = label.match(/^cpe:2\.3:[aho]:([^:]+):([^:]+)/i);
+    const vendor = m ? m[1] : "Other";
+    const product = m ? m[2] : label;
+    if (!groups[vendor]) groups[vendor] = [];
+    if (!groups[vendor].includes(product)) groups[vendor].push(product);
+  }
+  return groups;
+}
+
+function Section({
+  id,
+  title,
+  children,
+  tone,
+}: {
+  id?: string;
+  title: string;
+  children: React.ReactNode;
+  tone?: "warn" | "accent" | "default";
+}) {
+  const border =
+    tone === "warn"
+      ? "border-warn/40 bg-warn/5"
+      : tone === "accent"
+        ? "border-accent/30"
+        : "border-border";
+  return (
+    <Card id={id} className={border}>
+      <h2 className="font-display text-lg font-semibold tracking-tight">{title}</h2>
+      <div className="mt-3">{children}</div>
+    </Card>
+  );
+}
+
 export default function VulnDetailPage() {
   const params = useParams();
   const cveId = String(params.cveId || "");
@@ -87,6 +136,15 @@ export default function VulnDetailPage() {
       .finally(() => setLoading(false));
   }, [cveId]);
 
+  const productGroups = useMemo(
+    () => (data?.products?.length ? groupProducts(data.products) : {}),
+    [data],
+  );
+  const solutions = useMemo(() => {
+    if (!data) return [] as string[];
+    return data.bdu.map((b) => b.solution).filter(Boolean) as string[];
+  }, [data]);
+
   if (loading) return <div className="text-sm text-muted">Загрузка карточки CVE…</div>;
   if (err) {
     return (
@@ -97,253 +155,320 @@ export default function VulnDetailPage() {
   }
   if (!data) return null;
 
-  const solution = data.bdu.map((b) => b.solution).filter(Boolean).join("\n") || null;
+  const summary =
+    data.title && data.title !== data.id ? data.title : data.description.slice(0, 160);
 
   return (
-    <div className="mx-auto max-w-4xl space-y-5" data-testid="cve-detail">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <p className="text-xs uppercase tracking-wide text-muted">Vulnerability</p>
-          <h1 className="font-display text-3xl font-semibold tracking-tight">{data.id}</h1>
-          <p className="mt-1 text-muted">{data.title !== data.id ? data.title : data.description.slice(0, 120)}</p>
-          <div className="mt-3 flex flex-wrap gap-2">
-            {data.cvss.severity && (
-              <Badge tone={severityTone(data.cvss.severity)} aria-label={`Severity ${data.cvss.severity}`}>
-                {data.cvss.severity}
-                {data.cvss.score != null ? ` ${data.cvss.score}` : ""}
-              </Badge>
-            )}
-            {data.is_cisa_kev && (
-              <Badge tone="warn" aria-label="CISA KEV">
-                <AlertTriangle size={10} className="mr-1" aria-hidden />
-                KEV
-              </Badge>
-            )}
-            {data.bdu.length > 0 && (
-              <Badge tone="accent" aria-label="Есть БДУ">
-                BDU ×{data.bdu.length}
-              </Badge>
-            )}
-            {(data.exploits?.length || 0) > 0 && (
-              <Badge tone="neutral" aria-label="Связанные exploits">
-                XDB ×{data.exploits!.length}
-              </Badge>
-            )}
-            {data.status && <Badge>{data.status}</Badge>}
-            {data.source && <Badge tone="neutral">{data.source}</Badge>}
-          </div>
-        </div>
-        <Button
-          type="button"
-          variant="secondary"
-          onClick={() => {
-            window.location.href = `/tickets?cve=${encodeURIComponent(data.id)}`;
-          }}
+    <div className="space-y-6" data-testid="cve-detail">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <Link
+          href="/search"
+          className="inline-flex items-center gap-1.5 text-sm text-muted transition hover:text-accent2"
         >
-          <Ticket size={14} />
-          Создать заявку
-        </Button>
-      </div>
-
-      <div className="grid gap-4 sm:grid-cols-3 text-sm">
-        <Card className="p-4">
-          <div className="text-muted">Published</div>
-          <div className="mt-1 font-medium">{formatDate(data.published_at)}</div>
-        </Card>
-        <Card className="p-4">
-          <div className="text-muted">Modified</div>
-          <div className="mt-1 font-medium">{formatDate(data.modified_at)}</div>
-        </Card>
-        <Card className="p-4">
-          <div className="text-muted">CVSS {data.cvss.version || ""}</div>
-          <div className="mt-1 font-medium">
-            {data.cvss.score ?? "—"}
-            {data.cvss.is_remote ? " · remote" : ""}
-          </div>
-          {data.cvss.vector && (
-            <code className="mt-2 block break-all text-xs text-muted">{data.cvss.vector}</code>
-          )}
-        </Card>
-      </div>
-
-      <Card>
-        <h2 className="font-display text-lg font-semibold">Description</h2>
-        <p className="mt-2 whitespace-pre-wrap text-sm leading-relaxed text-muted">{data.description}</p>
-      </Card>
-
-      {data.cwes?.length > 0 && (
-        <Card>
-          <h2 className="font-display text-lg font-semibold">CWE</h2>
-          <div className="mt-2 flex flex-wrap gap-2">
-            {data.cwes.map((c) => (
-              <Badge key={c}>{typeof c === "string" ? c : JSON.stringify(c)}</Badge>
-            ))}
-          </div>
-        </Card>
-      )}
-
-      {data.products?.length > 0 && (
-        <Card>
-          <h2 className="font-display text-lg font-semibold">Affected products</h2>
-          <ul className="mt-2 list-inside list-disc text-sm text-muted">
-            {data.products.map((p, i) => (
-              <li key={i}>{typeof p === "string" ? p : JSON.stringify(p)}</li>
-            ))}
-          </ul>
-        </Card>
-      )}
-
-      {data.kev && (
-        <Card className="border-warn/40 bg-warn/5">
-          <h2 className="flex items-center gap-2 font-display text-lg font-semibold text-warn">
-            <AlertTriangle size={18} aria-hidden />
-            CISA KEV
-          </h2>
-          <dl className="mt-3 grid gap-2 text-sm sm:grid-cols-2">
-            <div>
-              <dt className="text-muted">Vulnerability</dt>
-              <dd>{data.kev.vulnerability_name || "—"}</dd>
-            </div>
-            <div>
-              <dt className="text-muted">Vendor / Product</dt>
-              <dd>
-                {data.kev.vendor_project || "—"} / {data.kev.product || "—"}
-              </dd>
-            </div>
-            <div>
-              <dt className="text-muted">Date added</dt>
-              <dd>{data.kev.date_added || "—"}</dd>
-            </div>
-            <div>
-              <dt className="text-muted">Due date</dt>
-              <dd>{data.kev.due_date || "—"}</dd>
-            </div>
-            <div className="sm:col-span-2">
-              <dt className="text-muted">Required action</dt>
-              <dd>{data.kev.required_action || "—"}</dd>
-            </div>
-            {data.kev.known_ransomware && (
-              <div>
-                <dt className="text-muted">Known ransomware</dt>
-                <dd>{data.kev.known_ransomware}</dd>
-              </div>
-            )}
-          </dl>
-        </Card>
-      )}
-
-      {data.epss && (
-        <Card>
-          <h2 className="font-display text-lg font-semibold">EPSS</h2>
-          <p className="mt-2 text-sm">
-            Score: <strong>{((data.epss.score ?? 0) * 100).toFixed(2)}%</strong>
-            {data.epss.percentile != null && (
-              <>
-                {" "}
-                · percentile p{Math.round(data.epss.percentile * 100)}
-              </>
-            )}
-          </p>
-        </Card>
-      )}
-
-      {data.bdu.length > 0 && (
-        <Card className="border-accent/30" data-testid="bdu-panel">
-          <h2 className="font-display text-lg font-semibold">БДУ (ФСТЭК)</h2>
-          <div className="mt-3 space-y-4">
-            {data.bdu.map((b) => (
-              <div key={b.id} className="rounded-xl border border-border bg-surface2/50 p-4">
-                <div className="flex flex-wrap items-center gap-2">
-                  <Link href={`/bdu/${encodeURIComponent(b.id)}`} className="font-semibold text-accent2 hover:underline">
-                    {b.id}
-                  </Link>
-                  {b.severity && <Badge tone={severityTone(b.severity)}>{b.severity}</Badge>}
-                  {b.status && <Badge>{b.status}</Badge>}
-                </div>
-                {b.name && <p className="mt-1 text-sm font-medium">{b.name}</p>}
-                {b.description && <p className="mt-2 text-sm text-muted">{b.description}</p>}
-                {b.solution && (
-                  <p className="mt-2 text-sm">
-                    <span className="text-muted">Решение: </span>
-                    {b.solution}
-                  </p>
-                )}
-                <p className="mt-2 text-xs text-muted">
-                  {[b.vendors, b.software_names, b.identify_date].filter(Boolean).join(" · ")}
-                </p>
-              </div>
-            ))}
-          </div>
-        </Card>
-      )}
-
-      {(data.exploits?.length || 0) > 0 && (
-        <Card data-testid="exploits-panel">
-          <h2 className="font-display text-lg font-semibold">Related exploits (XDB)</h2>
-          <ul className="mt-3 space-y-2 text-sm">
-            {data.exploits!.map((e) => (
-              <li key={e.xdb_id} className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-border px-3 py-2">
-                <div>
-                  <div className="font-mono text-xs text-muted">{e.xdb_id}</div>
-                  <div className="font-medium">{e.repo_name || e.author || "repo"}</div>
-                  <div className="text-xs text-muted">{e.author}</div>
-                </div>
-                {e.repo_url ? (
-                  <a
-                    href={e.repo_url}
-                    target="_blank"
-                    rel="noreferrer noopener"
-                    className="inline-flex items-center gap-1 text-accent2 hover:underline"
-                  >
-                    Repository
-                    <ExternalLink size={12} />
-                  </a>
-                ) : (
-                  <Link href="/xdb" className="text-accent2 hover:underline">
-                    XDB
-                  </Link>
-                )}
-              </li>
-            ))}
-          </ul>
-        </Card>
-      )}
-
-      {solution && (
-        <Card>
-          <h2 className="font-display text-lg font-semibold">Solution / mitigations</h2>
-          <p className="mt-2 whitespace-pre-wrap text-sm text-muted">{solution}</p>
-        </Card>
-      )}
-
-      {data.references?.length > 0 && (
-        <Card>
-          <h2 className="font-display text-lg font-semibold">References</h2>
-          <ul className="mt-2 space-y-1 text-sm">
-            {data.references.map((r, i) => {
-              const url = refUrl(r);
-              return (
-                <li key={i}>
-                  {url ? (
-                    <a href={url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-accent2 hover:underline">
-                      {url}
-                      <ExternalLink size={12} />
-                    </a>
-                  ) : (
-                    <span className="text-muted">{JSON.stringify(r)}</span>
-                  )}
-                </li>
-              );
-            })}
-          </ul>
-        </Card>
-      )}
-
-      <p className="text-sm">
-        <Link href="/search" className="text-accent2 hover:underline">
-          ← К поиску
+          <ArrowLeft size={14} />К поиску
         </Link>
-      </p>
+        <div className="flex flex-wrap gap-2">
+          <Button
+            type="button"
+            variant="secondary"
+            onClick={() => {
+              window.location.href = `/tickets?cve=${encodeURIComponent(data.id)}`;
+            }}
+          >
+            <Ticket size={14} />
+            Создать заявку
+          </Button>
+          <Button
+            type="button"
+            variant="ghost"
+            onClick={() => {
+              void navigator.clipboard?.writeText(window.location.href);
+            }}
+            aria-label="Скопировать ссылку"
+          >
+            <Share2 size={14} />
+            Share
+          </Button>
+        </div>
+      </div>
+
+      {/* Header */}
+      <div className="rounded-2xl border border-border bg-surface/90 p-5 shadow-soft md:p-6">
+        <p className="text-xs font-semibold uppercase tracking-wider text-muted">Vulnerability</p>
+        <h1 className="mt-1 font-display text-3xl font-semibold tracking-tight md:text-4xl">
+          {data.id}
+        </h1>
+        <p className="mt-2 max-w-3xl text-sm leading-relaxed text-muted md:text-base">{summary}</p>
+        <div className="mt-4 flex flex-wrap gap-2">
+          {data.cvss.severity && (
+            <Badge tone={severityTone(data.cvss.severity)}>
+              {data.cvss.severity}
+              {data.cvss.score != null ? ` ${data.cvss.score}` : ""}
+            </Badge>
+          )}
+          {data.is_cisa_kev && (
+            <Badge tone="warn">
+              <AlertTriangle size={10} className="mr-1" aria-hidden />
+              Actively Exploited (KEV)
+            </Badge>
+          )}
+          {data.bdu.length > 0 && <Badge tone="accent">BDU ×{data.bdu.length}</Badge>}
+          {(data.exploits?.length || 0) > 0 && (
+            <Badge tone="neutral">XDB ×{data.exploits!.length}</Badge>
+          )}
+          {data.status && <Badge>{data.status}</Badge>}
+          {data.source && <Badge tone="neutral">{data.source}</Badge>}
+        </div>
+
+        <dl className="mt-5 grid gap-3 text-sm sm:grid-cols-2 lg:grid-cols-4">
+          <div className="rounded-xl border border-border/80 bg-surface2/50 px-3 py-2.5">
+            <dt className="text-xs text-muted">Published</dt>
+            <dd className="mt-0.5 font-medium">{formatDate(data.published_at)}</dd>
+          </div>
+          <div className="rounded-xl border border-border/80 bg-surface2/50 px-3 py-2.5">
+            <dt className="text-xs text-muted">Last modified</dt>
+            <dd className="mt-0.5 font-medium">{formatDate(data.modified_at)}</dd>
+          </div>
+          <div className="rounded-xl border border-border/80 bg-surface2/50 px-3 py-2.5">
+            <dt className="text-xs text-muted">Status</dt>
+            <dd className="mt-0.5 font-medium">{data.status || "—"}</dd>
+          </div>
+          <div className="rounded-xl border border-border/80 bg-surface2/50 px-3 py-2.5">
+            <dt className="text-xs text-muted">Source</dt>
+            <dd className="mt-0.5 font-medium">{data.source || "—"}</dd>
+          </div>
+        </dl>
+      </div>
+
+      {/* Main + Scoring */}
+      <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_340px]">
+        <div className="min-w-0 space-y-5">
+          <Section title="Description">
+            <p className="whitespace-pre-wrap text-sm leading-relaxed text-muted">{data.description}</p>
+          </Section>
+
+          {data.kev && (
+            <Section title="CISA Known Exploited Vulnerability" tone="warn">
+              <dl className="grid gap-3 text-sm sm:grid-cols-2">
+                <div>
+                  <dt className="text-xs text-muted">Vulnerability</dt>
+                  <dd className="mt-0.5 font-medium">{data.kev.vulnerability_name || "—"}</dd>
+                </div>
+                <div>
+                  <dt className="text-xs text-muted">Vendor / Product</dt>
+                  <dd className="mt-0.5">
+                    {data.kev.vendor_project || "—"} / {data.kev.product || "—"}
+                  </dd>
+                </div>
+                <div>
+                  <dt className="text-xs text-muted">Date added</dt>
+                  <dd className="mt-0.5">{data.kev.date_added || "—"}</dd>
+                </div>
+                <div>
+                  <dt className="text-xs text-muted">Due date</dt>
+                  <dd className="mt-0.5">{data.kev.due_date || "—"}</dd>
+                </div>
+                <div className="sm:col-span-2">
+                  <dt className="text-xs text-muted">Required action</dt>
+                  <dd className="mt-0.5">{data.kev.required_action || "—"}</dd>
+                </div>
+                {data.kev.known_ransomware && (
+                  <div>
+                    <dt className="text-xs text-muted">Known ransomware use</dt>
+                    <dd className="mt-0.5">{data.kev.known_ransomware}</dd>
+                  </div>
+                )}
+                {data.kev.notes && (
+                  <div className="sm:col-span-2">
+                    <dt className="text-xs text-muted">Notes</dt>
+                    <dd className="mt-0.5 text-muted">{data.kev.notes}</dd>
+                  </div>
+                )}
+              </dl>
+            </Section>
+          )}
+
+          {data.cwes?.length > 0 && (
+            <Section title="CWEs">
+              <div className="flex flex-wrap gap-2">
+                {data.cwes.map((c) => (
+                  <Badge key={typeof c === "string" ? c : JSON.stringify(c)}>
+                    {typeof c === "string" ? c : JSON.stringify(c)}
+                  </Badge>
+                ))}
+              </div>
+            </Section>
+          )}
+
+          {Object.keys(productGroups).length > 0 && (
+            <Section title={`Affected products (${data.products.length} total)`}>
+              <div className="space-y-4">
+                {Object.entries(productGroups).map(([vendor, products]) => (
+                  <div key={vendor}>
+                    <h3 className="text-sm font-semibold text-text">
+                      {vendor}{" "}
+                      <span className="font-normal text-muted">({products.length})</span>
+                    </h3>
+                    <ul className="mt-1.5 list-inside list-disc text-sm text-muted">
+                      {products.map((p) => (
+                        <li key={p} className="break-all">
+                          {p}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                ))}
+              </div>
+            </Section>
+          )}
+
+          {data.epss && (
+            <Section title="EPSS — Exploit Prediction">
+              <div className="flex flex-wrap items-end gap-6">
+                <div>
+                  <div className="text-xs text-muted">Score</div>
+                  <div className="font-display text-3xl font-semibold tabular-nums">
+                    {((data.epss.score ?? 0) * 100).toFixed(2)}%
+                  </div>
+                </div>
+                {data.epss.percentile != null && (
+                  <div>
+                    <div className="text-xs text-muted">Percentile</div>
+                    <div className="font-display text-2xl font-semibold">
+                      p{Math.round(data.epss.percentile * 100)}
+                    </div>
+                  </div>
+                )}
+                {data.epss.scored_at && (
+                  <div className="text-xs text-muted">scored at {data.epss.scored_at}</div>
+                )}
+              </div>
+              <div className="mt-3 h-2 overflow-hidden rounded-full bg-surface2">
+                <div
+                  className="h-full rounded-full bg-accent"
+                  style={{ width: `${Math.min(100, (data.epss.score ?? 0) * 100)}%` }}
+                />
+              </div>
+            </Section>
+          )}
+
+          {data.bdu.length > 0 && (
+            <Section title="БДУ (ФСТЭК)" tone="accent">
+              <div className="space-y-4" data-testid="bdu-panel">
+                {data.bdu.map((b) => (
+                  <div key={b.id} className="rounded-xl border border-border bg-surface2/50 p-4">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Link
+                        href={`/bdu/${encodeURIComponent(b.id)}`}
+                        className="font-semibold text-accent2 hover:underline"
+                      >
+                        {b.id}
+                      </Link>
+                      {b.severity && <Badge tone={severityTone(b.severity)}>{b.severity}</Badge>}
+                      {b.status && <Badge>{b.status}</Badge>}
+                    </div>
+                    {b.name && <p className="mt-1 text-sm font-medium">{b.name}</p>}
+                    {b.description && <p className="mt-2 text-sm text-muted">{b.description}</p>}
+                    {b.solution && (
+                      <p className="mt-2 text-sm">
+                        <span className="text-muted">Решение: </span>
+                        {b.solution}
+                      </p>
+                    )}
+                    <p className="mt-2 text-xs text-muted">
+                      {[b.vendors, b.software_names, b.identify_date].filter(Boolean).join(" · ")}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            </Section>
+          )}
+
+          {(data.exploits?.length || 0) > 0 && (
+            <Section title="Related exploits (XDB)">
+              <ul className="space-y-2 text-sm" data-testid="exploits-panel">
+                {data.exploits!.map((e) => (
+                  <li
+                    key={e.xdb_id}
+                    className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-border px-3 py-2"
+                  >
+                    <div>
+                      <div className="font-mono text-xs text-muted">{e.xdb_id}</div>
+                      <div className="font-medium">{e.repo_name || e.author || "repo"}</div>
+                      <div className="text-xs text-muted">{e.author}</div>
+                    </div>
+                    {e.repo_url ? (
+                      <a
+                        href={e.repo_url}
+                        target="_blank"
+                        rel="noreferrer noopener"
+                        className="inline-flex items-center gap-1 text-accent2 hover:underline"
+                      >
+                        Repository
+                        <ExternalLink size={12} />
+                      </a>
+                    ) : (
+                      <Link href="/xdb" className="text-accent2 hover:underline">
+                        XDB
+                      </Link>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            </Section>
+          )}
+
+          {solutions.length > 0 && (
+            <Section title="Solution / mitigations">
+              <ul className="list-inside list-disc space-y-1 text-sm text-muted">
+                {solutions.map((s, i) => (
+                  <li key={i}>{s}</li>
+                ))}
+              </ul>
+            </Section>
+          )}
+
+          {data.references?.length > 0 && (
+            <Section title="References">
+              <ul className="space-y-1.5 text-sm">
+                {data.references.map((r, i) => {
+                  const url = refUrl(r);
+                  return (
+                    <li key={i}>
+                      {url ? (
+                        <a
+                          href={url}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="inline-flex items-center gap-1 break-all text-accent2 hover:underline"
+                        >
+                          {url}
+                          <ExternalLink size={12} />
+                        </a>
+                      ) : (
+                        <span className="text-muted">{JSON.stringify(r)}</span>
+                      )}
+                    </li>
+                  );
+                })}
+              </ul>
+            </Section>
+          )}
+        </div>
+
+        {/* Sticky scoring column */}
+        <aside className="xl:sticky xl:top-20 xl:self-start">
+          <Card className="border-border/80 shadow-soft">
+            <CvssScoringDetails
+              score={data.cvss.score}
+              severity={data.cvss.severity}
+              version={data.cvss.version}
+              vector={data.cvss.vector}
+              isRemote={data.cvss.is_remote}
+            />
+          </Card>
+        </aside>
+      </div>
     </div>
   );
 }
