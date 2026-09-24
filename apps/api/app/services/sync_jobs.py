@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 
 from app.models import SourceFile, SyncRun, utcnow
 from app.services.bdu_import import import_bdu_xml_content
+from app.services.epss_sync import run_epss_sync
 from app.services.kev_sync import run_kev_sync
 from app.services.nvd_sync import run_nvd_sync
 
@@ -45,6 +46,8 @@ def process_sync_run(db: Session, run_id: int) -> SyncRun:
             stats["kev"] = kev_stats
         elif run.source == "kev":
             stats = run_kev_sync(db, mock_fallback=True)
+        elif run.source == "epss":
+            stats = run_epss_sync(db)
         elif run.source == "bdu":
             src = (
                 db.query(SourceFile)

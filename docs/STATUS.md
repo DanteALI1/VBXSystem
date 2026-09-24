@@ -5,14 +5,21 @@
 | W0 | Foundation | DONE | Monorepo, Compose, RBAC seed |
 | W1 | Auth & Users | DONE | Register/approval, 2FA, users |
 | W2 | Vuln Core (NVD/BDU/KEV) | DONE | Sync jobs + Settings/Database UI |
-| W3 | Search & Detail | **DONE** | Search + CVE/BDU cards, KEV highlight |
-| W4 | Dashboard / EPSS / CVEQL | pending | Depends on W2–W3 |
+| W3 | Search & Detail | DONE | Search + CVE/BDU cards, KEV highlight |
+| W4 | Dashboard / EPSS / CVEQL | **DONE** | KPI dashboard, EPSS, CVEQL subset |
 | W5 | XDB Exploits | pending | Depends on W2–W3 |
 | W6 | Settings suite | pending | Depends on W1 (+ W2 for Database UI) |
 | W7 | Tickets | pending | Depends on W1, W3 |
 | W8 | Hardening & E2E | pending | Прогон install.sh на чистой РЕД ОС |
 
 Last updated: 2026-09-23
+
+## W4 acceptance
+- `GET /dashboard` — KPI, activity chart ranges, recent critical/KEV, sync health
+- `GET /epss` + `POST /epss/sync` — top predictions + delta movers (mock sync)
+- `GET /cveql/help`, `POST /cveql/execute` — AST→SQLAlchemy, role rate limit, RU errors
+- Web `/dashboard`, `/epss`, `/cveql`
+- Pytest `tests/test_cveql_dashboard.py` (parser + injection + examples)
 
 ## W3 acceptance
 - `GET /search` — mixed CVE + standalone BDU, filters (severity, KEV, has BDU, date), sort, pagination

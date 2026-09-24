@@ -270,3 +270,91 @@ class BduDetailOut(BaseModel):
     linked_cve_ids: list[str] = []
     identify_date: str = ""
     is_standalone: bool = True
+
+
+class DashboardKpiOut(BaseModel):
+    cves_today: int
+    cves_today_delta_pct: float | None = None
+    cves_week: int
+    cves_week_delta_pct: float | None = None
+    kev_week: int
+    kev_total: int
+    kev_catalog: int
+
+
+class DashboardHitOut(BaseModel):
+    id: str
+    title: str
+    severity: str = ""
+    cvss_score: float | None = None
+    published_at: str | None = None
+    is_cisa_kev: bool = False
+    href: str
+
+
+class SyncHealthItemOut(BaseModel):
+    source: str
+    status: str
+    finished_at: str | None = None
+    error: str = ""
+
+
+class DashboardOut(BaseModel):
+    kpis: DashboardKpiOut
+    chart_range: str
+    activity: list[dict]
+    recent_critical: list[DashboardHitOut]
+    recent_kev: list[DashboardHitOut]
+    sync_health: dict[str, SyncHealthItemOut | None]
+
+
+class EpssRowOut(BaseModel):
+    cve_id: str
+    score: float
+    percentile: float = 0.0
+    scored_at: str = ""
+    severity: str = ""
+    title: str = ""
+    is_cisa_kev: bool = False
+    href: str
+    previous_score: float | None = None
+    delta: float | None = None
+
+
+class EpssOverviewOut(BaseModel):
+    top_predictions: list[EpssRowOut]
+    top_deltas: list[EpssRowOut]
+    total_scored: int
+
+
+class CveqlExampleOut(BaseModel):
+    title: str
+    query: str
+
+
+class CveqlHelpOut(BaseModel):
+    fields: list[str]
+    operators: list[str]
+    examples: list[CveqlExampleOut]
+    notes: str = ""
+
+
+class CveqlHitOut(BaseModel):
+    id: str
+    severity: str = ""
+    cvss_score: float | None = None
+    published: str | None = None
+    description: str = ""
+    is_cisa_kev: bool = False
+    has_bdu: bool = False
+    epss_score: float | None = None
+    href: str
+
+
+class CveqlExecuteOut(BaseModel):
+    query: str
+    total: int
+    limit: int
+    offset: int
+    results: list[CveqlHitOut]
+    fields: list[str] = []
