@@ -435,3 +435,56 @@ class ApiKeyOut(BaseModel):
 
 class ApiKeyCreatedOut(ApiKeyOut):
     secret: str
+
+
+class TicketOut(BaseModel):
+    id: int
+    title: str
+    description: str = ""
+    severity: str = "MEDIUM"
+    status: str = "new"
+    linked_cve_id: str | None = None
+    linked_bdu_id: str | None = None
+    assignee_user_id: int | None = None
+    assignee_name: str = ""
+    group_id: int | None = None
+    group_name: str = ""
+    created_by_id: int | None = None
+    created_by_name: str = ""
+    due_date: str | None = None
+    created_at: str | None = None
+    updated_at: str | None = None
+
+
+class TicketListOut(BaseModel):
+    total: int
+    page: int
+    page_size: int
+    results: list[TicketOut]
+
+
+class TicketCommentOut(BaseModel):
+    id: int
+    author_user_id: int | None = None
+    author_name: str = ""
+    body: str
+    created_at: str | None = None
+
+
+class TicketEventOut(BaseModel):
+    id: int
+    actor_user_id: int | None = None
+    actor_name: str = ""
+    event_type: str
+    message: str
+    created_at: str | None = None
+
+
+class TicketDetailOut(TicketOut):
+    comments: list[TicketCommentOut] = []
+    events: list[TicketEventOut] = []
+
+
+class TicketCreateOut(BaseModel):
+    ticket: TicketOut
+    warning: str | None = None

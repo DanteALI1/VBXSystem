@@ -18,6 +18,7 @@ from app.api import (
     routes,
     search_routes,
     security_routes,
+    tickets_routes,
     users_routes,
     xdb_routes,
 )
@@ -41,7 +42,7 @@ async def lifespan(_: FastAPI):
 
 def create_app() -> FastAPI:
     settings = get_settings()
-    app = FastAPI(title="VBXSystem API", version="0.5.0", lifespan=lifespan)
+    app = FastAPI(title="VBXSystem API", version="0.6.0", lifespan=lifespan)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.cors_origins_list or ["*"],
@@ -64,6 +65,7 @@ def create_app() -> FastAPI:
     app.include_router(security_routes.router)
     app.include_router(integrations_routes.router)
     app.include_router(api_keys_routes.router)
+    app.include_router(tickets_routes.router)
     return app
 
 
