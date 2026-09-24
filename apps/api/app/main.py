@@ -8,17 +8,20 @@ from sqlalchemy.orm import joinedload
 from app.api import (
     api_keys_routes,
     auth_routes,
+    branding_routes,
     cveql_routes,
     dashboard_routes,
     database_routes,
     epss_routes,
     groups_routes,
     integrations_routes,
+    local_routes,
     notifications_routes,
     profile_routes,
     routes,
     search_routes,
     security_routes,
+    system_routes,
     tickets_routes,
     users_routes,
     xdb_routes,
@@ -44,7 +47,7 @@ async def lifespan(_: FastAPI):
 
 def create_app() -> FastAPI:
     settings = get_settings()
-    app = FastAPI(title="VBXSystem API", version="0.8.0", lifespan=lifespan)
+    app = FastAPI(title="VBXSystem API", version="0.9.0", lifespan=lifespan)
     # Last added = outermost. Order: size limit → trusted host → CORS → security headers.
     app.add_middleware(SecurityHeadersMiddleware)
     app.add_middleware(
@@ -60,11 +63,14 @@ def create_app() -> FastAPI:
     app.add_middleware(RequestSizeLimitMiddleware)
     app.include_router(routes.router)
     app.include_router(auth_routes.router)
+    app.include_router(branding_routes.router)
     app.include_router(profile_routes.router)
     app.include_router(users_routes.router)
     app.include_router(groups_routes.router)
     app.include_router(database_routes.router)
+    app.include_router(system_routes.router)
     app.include_router(search_routes.router)
+    app.include_router(local_routes.router)
     app.include_router(dashboard_routes.router)
     app.include_router(epss_routes.router)
     app.include_router(cveql_routes.router)

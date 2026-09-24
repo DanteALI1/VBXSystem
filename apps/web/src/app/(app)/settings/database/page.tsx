@@ -32,6 +32,7 @@ type DbSettings = {
   nvd_auto_update: boolean;
   nvd_auto_interval_hours: number;
   nvd_mock_mode: boolean;
+  bdu_xml_url?: string;
   last_nvd_sync: SyncRun | null;
   last_bdu_sync: SyncRun | null;
   last_kev_sync: SyncRun | null;
@@ -320,8 +321,8 @@ export default function DatabaseSettingsPage() {
           <h2 className="font-display text-lg font-semibold">База БДУ (ФСТЭК)</h2>
         </div>
         <p className="mb-4 text-sm text-muted">
-          Загрузите XML-выгрузку БДУ. Записи с привязкой к CVE попадут в секцию карточки CVE; без CVE —
-          отдельными карточками BDU.
+          Загрузите XML-выгрузку БДУ или синхронизируйте по URL (как в VULNEX). Записи с CVE — в секцию
+          карточки; без CVE — отдельные карточки BDU.
         </p>
         <div className="mb-4 grid gap-3 sm:grid-cols-3">
           <div className="rounded-xl border border-border bg-surface2/60 p-4">
@@ -337,6 +338,62 @@ export default function DatabaseSettingsPage() {
             <div className="mt-2 font-medium">{s.bdu_standalone}</div>
           </div>
         </div>
+        <form
+          className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-end"
+          onSubmit={async (e) => {
+            e.preventDefault();
+            setBusy(true);
+            setMsg(null);
+            setErr(null);
+            try {
+              const res = await api<{ message: string }>("/settings/database/bdu-url", {
+                method: "PUT",
+                body: JSON.stringify({ bdu_xml_url: data.bdu_xml_url || "" }),
+              });
+              setMsg(res.message);
+              await reload();
+            } catch (ex) {
+              setErr(ex instanceof Error ? ex.message : "Ошибка");
+            } finally {
+              setBusy(false);
+            }
+          }}
+        >
+          <div className="min-w-0 flex-1">
+            <Input
+              label="URL XML-выгрузки БДУ"
+              value={data.bdu_xml_url || ""}
+              onChange={(e) => setData({ ...data, bdu_xml_url: e.target.value })}
+              placeholder="https://bdu.fstec.ru/files/documents/vulxml.xml"
+            />
+          </div>
+          <Button type="submit" variant="secondary" disabled={busy}>
+            Сохранить URL
+          </Button>
+          <Button
+            type="button"
+            disabled={busy}
+            onClick={async () => {
+              setBusy(true);
+              setMsg(null);
+              setErr(null);
+              try {
+                const res = await api<{ message: string }>("/settings/database/sync/bdu-url", {
+                  method: "POST",
+                  body: "{}",
+                });
+                setMsg(res.message);
+                await reload();
+              } catch (ex) {
+                setErr(ex instanceof Error ? ex.message : "Ошибка sync БДУ");
+              } finally {
+                setBusy(false);
+              }
+            }}
+          >
+            <RefreshCw size={16} /> Sync по URL
+          </Button>
+        </form>
         <label className="inline-flex cursor-pointer items-center">
           <input
             type="file"

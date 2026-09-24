@@ -29,9 +29,11 @@ Prompt:
 ## Suggested order
 ```
 W0 → W1 → W2 → W3 → (W4 ∥ W5) → W6 → W7 → W8
+→ W9 (VULNEX enrich) → (W10 ∥ W11)
 ```
 `W4` и `W5` можно параллелить после W3.  
-`W6` может стартовать после W1, но Database polish лучше после W2.
+`W6` может стартовать после W1, но Database polish лучше после W2.  
+После W8 — обогащение по `docs/ENRICHMENT_FROM_VULNEX.md` (W9→W11).
 
 ## Review gate between waves
 Перед стартом следующей волны проверить:

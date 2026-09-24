@@ -17,6 +17,7 @@ from app.models import BduRecord, CisaKev, CveRecord, SourceFile, SyncRun, User,
 from app.schemas import (
     AutoUpdateUpdate,
     BduUploadOut,
+    BduUrlUpdate,
     DatabaseSettingsOut,
     DatabaseStatsOut,
     MessageOut,
@@ -110,11 +111,16 @@ def _build_settings(db: Session) -> DatabaseSettingsOut:
         nvd_auto_update=auto,
         nvd_auto_interval_hours=int(interval or "2"),
         nvd_mock_mode=mock,
+        bdu_xml_url=get_setting(
+            db,
+            "bdu_xml_url",
+            "https://bdu.fstec.ru/files/documents/vulxml.xml",
+        ),
         last_nvd_sync=_sync_out(last_nvd),
         last_bdu_sync=_sync_out(last_bdu),
         last_kev_sync=_sync_out(last_kev),
         stats=DatabaseStatsOut(
-            db_version="v0.2.0",
+            db_version="v0.9.0",
             cve_count=cve_count,
             bdu_count=bdu_count,
             bdu_mapped=bdu_mapped,
@@ -259,6 +265,92 @@ async def upload_bdu(
     run = db.get(SyncRun, run.id)
     write_audit(db, action="database.bdu_upload", actor_user_id=user.id, resource=safe_name)
     return BduUploadOut(run=_sync_out(run), message="Импорт БДУ выполнен", filename=safe_name)
+
+
+@router.put("/bdu-url", response_model=MessageOut)
+def set_bdu_url(
+    payload: BduUrlUpdate,
+    db: Session = Depends(get_db),
+    user: User = Depends(_require_db_admin),
+) -> MessageOut:
+    url = (payload.bdu_xml_url or "").strip()
+    set_setting(db, "bdu_xml_url", url)
+    write_audit(db, action="database.bdu_url_set", actor_user_id=user.id, details=url[:200])
+    return MessageOut(message="URL выгрузки БДУ сохранён")
+
+
+@router.post("/sync/bdu-url", response_model=BduUploadOut)
+def sync_bdu_from_url(
+    request: Request,
+    db: Session = Depends(get_db),
+    user: User = Depends(_require_db_admin),
+) -> BduUploadOut:
+    """Download BDU XML from configured URL and import (VULNEX-style)."""
+    rate_limit(request, "bdu_url_sync", limit=3, window=600)
+    import httpx
+
+    url = get_setting(
+        db,
+        "bdu_xml_url",
+        "https://bdu.fstec.ru/files/documents/vulxml.xml",
+    ).strip()
+    if not url.startswith("http://") and not url.startswith("https://"):
+        raise HTTPException(status_code=400, detail="Задайте корректный http(s) URL БДУ")
+
+    max_bytes = get_settings().vbx_max_bdu_upload_bytes
+    upload_root = _upload_root()
+    upload_root.mkdir(parents=True, exist_ok=True)
+    run = enqueue_sync(db, "bdu", created_by=user.id)
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+    dest = upload_root / f"{stamp}-bdu-url.xml"
+    try:
+        with httpx.Client(timeout=120.0, follow_redirects=True, verify=True) as client:
+            with client.stream("GET", url) as resp:
+                if resp.status_code >= 400:
+                    raise HTTPException(
+                        status_code=502,
+                        detail=f"Источник БДУ вернул HTTP {resp.status_code}",
+                    )
+                written = 0
+                with dest.open("wb") as out:
+                    for chunk in resp.iter_bytes(CHUNK):
+                        written += len(chunk)
+                        if written > max_bytes:
+                            dest.unlink(missing_ok=True)
+                            raise HTTPException(
+                                status_code=413,
+                                detail=f"Выгрузка БДУ превышает лимит {max_bytes // (1024 * 1024)} МБ",
+                            )
+                        out.write(chunk)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        dest.unlink(missing_ok=True)
+        run.status = "failed"
+        run.error = str(exc)[:2000]
+        run.finished_at = utcnow()
+        db.commit()
+        raise HTTPException(status_code=502, detail=f"Не удалось скачать БДУ: {exc}") from exc
+
+    db.add(
+        SourceFile(
+            source="bdu",
+            filename="bdu-url.xml",
+            stored_path=str(dest),
+            size_bytes=dest.stat().st_size,
+            sync_run_id=run.id,
+            created_at=utcnow(),
+        )
+    )
+    db.commit()
+    process_sync_run(db, run.id)
+    run = db.get(SyncRun, run.id)
+    write_audit(db, action="database.bdu_url_sync", actor_user_id=user.id, resource=url[:200])
+    return BduUploadOut(
+        run=_sync_out(run),
+        message="Синхронизация БДУ по URL выполнена",
+        filename="bdu-url.xml",
+    )
 
 
 @router.get("/export/cves")
