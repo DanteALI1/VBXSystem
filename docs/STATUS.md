@@ -17,6 +17,13 @@
 
 Last updated: 2026-09-24
 
+## Install UX (interactive)
+- `deploy/redos/install.sh` — мастер: сеть → каталоги → PostgreSQL → Redis → SECRET_KEY → org → Admin (профиль; пароль **всегда** генерируется в конце) → доп. УЗ (имя+пароль) → NVD → firewall
+- После up: sync пароля Admin в БД → `POST /auth/login` проверка → финальный отчёт с Admin/PG/Redis
+- `.env` экранируется (python3); пароли в DSN URL-encode; mode 600
+- Conf: `VBX_EXTRA_USERS_FILE`, `VBX_PURGE_EXISTING`; пароль Admin из conf игнорируется
+- Docs: `INSTALL_REDOS.md`, README, `vbx.conf.example`, `validate-install.sh` (+ mode 600, optional login smoke)
+
 ## W9 acceptance (VULNEX enrichment)
 - Docs: `ENRICHMENT_FROM_VULNEX.md`, agents W9–W11, AGENT_LAUNCH prompts
 - Login: two-column brand panel + form; public `GET /branding`

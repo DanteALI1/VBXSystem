@@ -106,11 +106,22 @@ W9: login split-layout, брендинг, метрики хоста, локал�
 
 ## Установка на РЕД ОС (minimal)
 
+Интерактивный мастер — на каждом этапе спрашивает нужные данные (сеть → PostgreSQL → Redis → SECRET_KEY → профиль Admin → доп. УЗ с именем и паролем → firewall). Пароль Admin **всегда генерируется** в конце и печатается один раз:
+
+```bash
+sudo bash deploy/redos/install.sh
+```
+
+Или из conf-файла (пароль Admin из conf игнорируется — всё равно генерируется):
+
 ```bash
 cp deploy/redos/vbx.conf.example /root/vbx.conf
 sudo bash deploy/redos/install.sh /root/vbx.conf
 sudo less /opt/vbx/VBX_INSTALL_INFO.txt
 ```
+
+Финал: URL, логин/пароль Admin, пароли PostgreSQL/Redis, проверка `POST /auth/login`, отчёт mode 600.  
+Подробности: [docs/ops/INSTALL_REDOS.md](docs/ops/INSTALL_REDOS.md).
 
 Документация оператора:
 

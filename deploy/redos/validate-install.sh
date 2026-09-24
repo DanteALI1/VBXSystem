@@ -48,13 +48,48 @@ fi
 
 if [[ -f /opt/vbx/VBX_INSTALL_INFO.txt ]]; then
   if [[ -s /opt/vbx/VBX_INSTALL_INFO.txt ]]; then ok "VBX_INSTALL_INFO.txt non-empty"; else fail "VBX_INSTALL_INFO.txt non-empty"; fi
-  if grep -qE 'супер-администратора|Логин:|Admin' /opt/vbx/VBX_INSTALL_INFO.txt; then
+  if grep -qE 'СУПЕР-АДМИНИСТРАТОР|супер-администратора|Логин:' /opt/vbx/VBX_INSTALL_INFO.txt; then
     ok "report mentions admin"
   else
     fail "report mentions admin"
   fi
+  if grep -qE 'Пароль:[[:space:]]+\S+' /opt/vbx/VBX_INSTALL_INFO.txt; then
+    ok "report has admin password field"
+  else
+    fail "report has admin password field"
+  fi
+  if grep -qE 'PostgreSQL \(Docker\)|DB password:' /opt/vbx/VBX_INSTALL_INFO.txt; then
+    ok "report has postgres credentials section"
+  else
+    fail "report has postgres credentials section"
+  fi
+  if grep -qE 'Redis|Password:' /opt/vbx/VBX_INSTALL_INFO.txt; then
+    ok "report has redis section"
+  else
+    fail "report has redis section"
+  fi
+  mode="$(stat -c '%a' /opt/vbx/VBX_INSTALL_INFO.txt 2>/dev/null || echo '?')"
+  if [[ "${mode}" == "600" ]]; then
+    ok "report mode 600"
+  else
+    fail "report mode 600 (got ${mode})"
+  fi
 else
   echo "SKIP VBX_INSTALL_INFO.txt (нет /opt/vbx — не РЕД ОС install)"
+fi
+
+# Опционально: проверка login, если в окружении есть креды отчёта
+if [[ -n "${VBX_VALIDATE_ADMIN_USER:-}" && -n "${VBX_VALIDATE_ADMIN_PASS:-}" ]]; then
+  code="$(curl -sS -o /dev/null -w '%{http_code}' \
+    -X POST "http://127.0.0.1:${API_PORT}/auth/login" \
+    -H 'Content-Type: application/json' \
+    -d "{\"username\":\"${VBX_VALIDATE_ADMIN_USER}\",\"password\":\"${VBX_VALIDATE_ADMIN_PASS}\"}" \
+    || true)"
+  if [[ "${code}" == "200" ]]; then
+    ok "Admin login smoke (${code})"
+  else
+    fail "Admin login smoke (got ${code})"
+  fi
 fi
 
 if [[ "${FAIL}" -ne 0 ]]; then

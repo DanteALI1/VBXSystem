@@ -17,14 +17,15 @@
 | 11 | 2FA / force-2fa | OK | Settings → Security |
 | 12 | Audit log чувствительных действий | OK | sync, upload, tickets, keys |
 | 13 | RBAC на admin/sync | OK | permissions seed |
-| 14 | Default admin password | WARN | Сменить после первого входа (документровано) |
+| 14 | Default admin password | OK | `install.sh` **всегда генерирует** пароль Admin; показать в отчёте |
 | 15 | TLS termination | WARN | HTTP по умолчанию; HTTPS через reverse-proxy / VBX_SCHEME |
 | 16 | API :8000 наружу | WARN | На prod закрыть firewall до API, оставить только web |
 
 ## Рекомендации оператору
 
-1. Сменить `VBX_ADMIN_PASSWORD` после установки.
+1. Сохранить пароль Admin из консоли/`VBX_INSTALL_INFO.txt` и сменить после первого входа.
 2. Выставить `VBX_TRUSTED_HOSTS=<dns>,localhost` и `VBX_CORS_ORIGINS` только на публичный URL.
 3. Не публиковать порт 8000 наружу; nginx/compose web → api внутри сети.
 4. Регулярный `scripts/backup.sh` (cron), хранить бэкапы вне сервера приложения.
 5. NVD API key — только в Settings UI или env, не в git.
+6. Файлы `vbx.env` и отчёта установки — mode 600, не коммитить.

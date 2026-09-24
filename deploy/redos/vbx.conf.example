@@ -1,70 +1,80 @@
 # =============================================================================
-# VBXSystem — конфигурация установки (РЕД ОС)
-# Скопируйте в vbx.conf и подставьте свои данные:
-#   cp deploy/redos/vbx.conf.example /opt/vbx/vbx.conf
-#   nano /opt/vbx/vbx.conf
-# Затем:
-#   sudo bash deploy/redos/install.sh /opt/vbx/vbx.conf
+# VBXSystem — пример конфигурации (неинтерактивный режим)
+# =============================================================================
+# Рекомендуемый путь на РЕД ОС — интерактивный мастер (сам спросит креды):
+#   sudo bash deploy/redos/install.sh
+#
+# Либо заполните этот файл и запустите:
+#   cp deploy/redos/vbx.conf.example /root/vbx.conf
+#   chmod 600 /root/vbx.conf
+#   nano /root/vbx.conf
+#   sudo bash deploy/redos/install.sh /root/vbx.conf
+#
+# Пустые VBX_SECRET_KEY / VBX_POSTGRES_PASSWORD / VBX_REDIS_PASSWORD
+# установщик СГЕНЕРИРУЕТ сам.
+# Пароль Admin ВСЕГДА генерируется заново (значение ниже игнорируется)
+# и пишется в VBX_INSTALL_INFO.txt + консоль в конце.
+#
+# Доп. УЗ (опционально):
+#   VBX_EXTRA_USERS_FILE="/root/vbx-extra-users.tsv"
+#   # username|email|full_name|password|role
+#   # analyst|analyst@example.local|Иван Аналитик|StrongPass_here|analyst
 # =============================================================================
 
-# --- Каталог установки на сервере ---
+# --- Каталог ---
 VBX_INSTALL_DIR="/opt/vbx"
 
-# --- Сеть / доступ ---
-# IP или DNS-имя, по которому пользователи открывают систему
+# --- Сеть ---
 VBX_HOST="192.168.1.100"
 VBX_HTTP_PORT="80"
 VBX_HTTPS_PORT="443"
-# http | https  (https потребует сертификаты — см. ниже)
+VBX_API_PORT="8000"
 VBX_SCHEME="http"
-
-# TLS (заполнять только если VBX_SCHEME=https)
-# Пути к уже существующим файлам на хосте (будут смонтированы в reverse-proxy)
 VBX_TLS_CERT_PATH=""
 VBX_TLS_KEY_PATH=""
 
-# --- Супер-администратор (создаётся при первом старте) ---
+# --- PostgreSQL (Docker) ---
+VBX_POSTGRES_DB="vbx"
+VBX_POSTGRES_USER="vbx"
+# пусто = сгенерировать
+VBX_POSTGRES_PASSWORD=""
+
+# --- Redis ---
+VBX_REDIS_PASSWORD=""
+
+# --- Admin (пароль из conf ИГНОРИРУЕТСЯ — всегда генерируется) ---
 VBX_ADMIN_USERNAME="admin"
 VBX_ADMIN_EMAIL="admin@example.local"
-VBX_ADMIN_PASSWORD="ChangeMe_StrongPass_123!"
+VBX_ADMIN_PASSWORD=""
 VBX_ADMIN_FULL_NAME="Главный Администратор"
 VBX_ADMIN_ORG="ООО Пример"
 VBX_ADMIN_TITLE="Администратор ИБ"
 VBX_ADMIN_PHONE="+7-900-000-00-00"
 
-# --- Секреты приложения (оставьте пустым — скрипт сгенерирует) ---
+# --- Секрет приложения ---
 VBX_SECRET_KEY=""
-VBX_POSTGRES_PASSWORD=""
-VBX_REDIS_PASSWORD=""
 
-# --- Опционально: ключ NVD (можно задать позже в UI Настройки → База данных) ---
+# --- Опционально ---
 VBX_NVD_API_KEY=""
-
-# --- Ресурсы / часовой пояс ---
 VBX_TIMEZONE="Europe/Moscow"
-# Лимиты Docker (0 = без явного лимита в compose override)
 VBX_POSTGRES_MEM_LIMIT="2g"
 VBX_API_MEM_LIMIT="2g"
 VBX_WEB_MEM_LIMIT="1g"
 
 # --- Источник кода ---
-# local  — использовать уже распакованный/склонированный репозиторий
-#         (скрипт ищет корень относительно себя или VBX_REPO_PATH)
-# archive — распаковать tar.gz из VBX_ARCHIVE_PATH
 VBX_SOURCE_MODE="local"
 VBX_REPO_PATH=""
 VBX_ARCHIVE_PATH=""
 
-# --- Сеть / firewall ---
-# Открыть порты в firewalld (yes/no)
-VBX_CONFIGURE_FIREWALL="yes"
-# Добавить текущего sudo-пользователя в группу docker (yes/no)
-VBX_ADD_USER_TO_DOCKER="yes"
+# --- Доп. УЗ (tsv) ---
+# VBX_EXTRA_USERS_FILE=""
 
 # --- Поведение ---
-# Обновлять систему через dnf update (yes/no). На prod часто no.
+VBX_CONFIGURE_FIREWALL="yes"
+VBX_ADD_USER_TO_DOCKER="yes"
 VBX_DNF_UPDATE="no"
-# Проверочный контейнер hello-world (yes/no)
 VBX_DOCKER_SMOKE_TEST="yes"
-# Файл отчёта об установке (абсолютный или относительно VBX_INSTALL_DIR)
+VBX_MAILHOG="yes"
 VBX_INSTALL_REPORT="VBX_INSTALL_INFO.txt"
+# yes = удалить volumes перед up; no = сохранить; в мастере по умолчанию ask
+VBX_PURGE_EXISTING="yes"
