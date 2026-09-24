@@ -11,13 +11,14 @@
 #   VBX_ASSUME_YES=1 sudo bash deploy/redos/install.sh
 #       → без TTY: всё по умолчанию, секреты и пароль Admin генерируются
 #
-# Важно:
-#   • Пароль супер-админа Admin ВСЕГДА генерируется установщиком и выдаётся
-#     только в конце (консоль + VBX_INSTALL_INFO.txt mode 600).
-#   • Пароли PostgreSQL / Redis можно ввести на этапе БД или оставить пустыми —
-#     тогда они тоже будут сгенерированы.
-#   • Дополнительную УЗ (аналитик и т.п.) можно создать на отдельном этапе:
-#     имя + пароль запрашиваются явно.
+# Важно (до мелочей):
+#   • Пароль супер-админа Admin ВСЕГДА генерируется установщиком
+#     (даже если задан в conf) и выдаётся только в конце.
+#   • На этапе Admin спрашиваются только профиль (логин/email/ФИО/…).
+#   • PostgreSQL / Redis / VBX_SECRET_KEY: ввод или Enter = генерация.
+#   • Доп. УЗ: явно имя + пароль (+ email/роль); пароль вводит оператор.
+#   • Пароли в DSN URL-кодируются; .env пишется безопасно (mode 600).
+#   • Финал: консоль + VBX_INSTALL_INFO.txt + проверка login Admin.
 # =============================================================================
 
 set -euo pipefail
@@ -32,6 +33,15 @@ STARTED_AT="$(date -Is)"
 INSTALL_USER="${SUDO_USER:-${USER:-root}}"
 APP_DIR=""
 EXTRA_USERS_FILE=""
+VBX_EXTRA_USERS_FILE="${VBX_EXTRA_USERS_FILE:-}"
+
+# Флаги: что было сгенерировано (для отчёта)
+GEN_POSTGRES=0
+GEN_REDIS=0
+GEN_SECRET=0
+GEN_ADMIN=0
+FRESH_VOLUMES=0
+ADMIN_LOGIN_OK=0
 
 # ---- defaults (перезаписываются мастером / conf) ----
 VBX_INSTALL_DIR="${VBX_INSTALL_DIR:-/opt/vbx}"
@@ -72,9 +82,11 @@ VBX_DNF_UPDATE="${VBX_DNF_UPDATE:-no}"
 VBX_DOCKER_SMOKE_TEST="${VBX_DOCKER_SMOKE_TEST:-yes}"
 VBX_INSTALL_REPORT="${VBX_INSTALL_REPORT:-VBX_INSTALL_INFO.txt}"
 VBX_MAILHOG="${VBX_MAILHOG:-yes}"
+VBX_PURGE_EXISTING="${VBX_PURGE_EXISTING:-ask}"
 
-# Доп. пользователи: tab-separated lines username|email|full_name|password|role
+# Доп. пользователи: username|email|full_name|password|role
 EXTRA_USERS=()
+VALID_ROLES="admin analyst viewer ticket_manager"
 
 # ---- colors ----
 if [[ -t 1 ]]; then
@@ -105,6 +117,7 @@ need_root() {
 
 have_tty() { [[ -t 0 && -t 1 ]]; }
 
+# Hex-секрет (безопасен для URL и .env)
 rand_secret() {
   local n="${1:-24}"
   if command -v openssl >/dev/null 2>&1; then
@@ -114,12 +127,60 @@ rand_secret() {
   fi
 }
 
-# Читаемый пароль Admin (без неоднозначных символов)
+# Читаемый пароль Admin (без неоднозначных символов O/0/l/1 и спецсимволов URL)
 rand_admin_password() {
+  local out=""
   if command -v openssl >/dev/null 2>&1; then
-    openssl rand -base64 18 | tr -d '/+=' | head -c 20
+    out="$(openssl rand -base64 32 | tr -d '/+=0OIl1' | head -c 22)"
   else
-    head -c 32 /dev/urandom | tr -dc 'A-Za-z0-9' | head -c 20
+    out="$(head -c 48 /dev/urandom | tr -dc 'A-HJ-NP-Za-km-z2-9' | head -c 22)"
+  fi
+  # Гарантируем длину и наличие буквы+цифры
+  if [[ ${#out} -lt 16 ]]; then
+    out="$(rand_secret 12)"
+  fi
+  printf '%s' "${out}"
+}
+
+# URL-encode для DSN (python3 предпочтительно)
+urlencode() {
+  local raw="$1"
+  if command -v python3 >/dev/null 2>&1; then
+    python3 -c 'import sys,urllib.parse; print(urllib.parse.quote(sys.argv[1], safe=""))' "$raw"
+  else
+    # fallback: только безопасный hex/alnum
+    printf '%s' "$raw" | sed 's/./&/g' | while IFS= read -r -n1 c; do
+      case "$c" in
+        [a-zA-Z0-9.~_-]) printf '%s' "$c" ;;
+        *) printf '%%%02X' "'$c" ;;
+      esac
+    done
+  fi
+}
+
+# Безопасная запись KEY=value в .env (экранирование через python)
+env_write_pair() {
+  local file="$1" key="$2" val="$3"
+  if command -v python3 >/dev/null 2>&1; then
+    python3 - "$file" "$key" "$val" <<'PY'
+import sys
+path, key, val = sys.argv[1], sys.argv[2], sys.argv[3]
+# docker compose .env: double-quote + escape \, ", $, newline
+escaped = (
+    val.replace("\\", "\\\\")
+       .replace('"', '\\"')
+       .replace("$", "\\$")
+       .replace("\n", "\\n")
+)
+with open(path, "a", encoding="utf-8") as f:
+    f.write(f'{key}="{escaped}"\n')
+PY
+  else
+    # fallback: запрещаем опасные символы
+    if [[ "$val" =~ [\"\'\$\`\\[:space:]] ]]; then
+      die "Значение ${key} содержит спецсимволы, а python3 недоступен для экранирования"
+    fi
+    printf '%s="%s"\n' "$key" "$val" >> "$file"
   fi
 }
 
@@ -137,16 +198,23 @@ prompt_line() {
   printf '%s' "${val:-$default}"
 }
 
+# Результат последнего prompt_password_* (избегаем subshell из $())
+_LAST_SECRET=""
+_LAST_SECRET_GENERATED=0
+
 prompt_password() {
   # $1 prompt, $2 allow empty generate (1/0)
+  # Пишет в _LAST_SECRET / _LAST_SECRET_GENERATED (не stdout — иначе флаги теряются в $())
   local prompt="$1" allow_gen="${2:-1}" a="" b=""
+  _LAST_SECRET=""
+  _LAST_SECRET_GENERATED=0
   if [[ "${ASSUME_YES}" == "1" ]] || ! have_tty; then
     if [[ "$allow_gen" == "1" ]]; then
-      rand_secret 16
-      return
+      _LAST_SECRET="$(rand_secret 16)"
+      _LAST_SECRET_GENERATED=1
+      return 0
     fi
-    printf ''
-    return
+    return 1
   fi
   while true; do
     if [[ "$allow_gen" == "1" ]]; then
@@ -154,48 +222,100 @@ prompt_password() {
     else
       read -r -s -p "$prompt: " a || true
     fi
-    echo >&2
+    echo
     if [[ -z "$a" && "$allow_gen" == "1" ]]; then
-      a="$(rand_secret 16)"
-      echo "  → сгенерирован надёжный пароль" >&2
-      printf '%s' "$a"
-      return
+      _LAST_SECRET="$(rand_secret 16)"
+      _LAST_SECRET_GENERATED=1
+      echo "  → сгенерирован надёжный пароль (hex, 32 символа)"
+      return 0
     fi
     if [[ -z "$a" ]]; then
-      echo "  пустой пароль не допускается" >&2
+      echo "  пустой пароль не допускается"
       continue
     fi
     if [[ ${#a} -lt 10 ]]; then
-      echo "  минимум 10 символов" >&2
+      echo "  минимум 10 символов (сейчас ${#a})"
+      continue
+    fi
+    if [[ "$a" =~ [[:space:]] ]]; then
+      echo "  пробелы в пароле не допускаются"
       continue
     fi
     read -r -s -p "  Повторите пароль: " b || true
-    echo >&2
+    echo
     if [[ "$a" != "$b" ]]; then
-      echo "  не совпадают — ещё раз" >&2
+      echo "  не совпадают — ещё раз"
       continue
     fi
-    printf '%s' "$a"
-    return
+    _LAST_SECRET="$a"
+    _LAST_SECRET_GENERATED=0
+    return 0
   done
 }
 
 confirm() {
   local prompt="$1" default="${2:-y}" ans=""
   if [[ "${ASSUME_YES}" == "1" ]] || ! have_tty; then
-    return 0
+    # Без TTY уважаем default (y → да, n → нет)
+    [[ "$default" =~ ^[YyДд] ]]
+    return
   fi
   read -r -p "$prompt [${default}/n]: " ans || true
   ans="${ans:-$default}"
   [[ "$ans" =~ ^[YyДд] ]]
 }
 
+prompt_yes_no() {
+  local prompt="$1" default="${2:-yes}" ans="" norm=""
+  if [[ "${ASSUME_YES}" == "1" ]] || ! have_tty; then
+    printf '%s' "$default"
+    return
+  fi
+  while true; do
+    read -r -p "$prompt [${default}]: " ans || true
+    ans="${ans:-$default}"
+    norm="$(printf '%s' "$ans" | tr '[:upper:]' '[:lower:]')"
+    case "${norm}" in
+      y|yes|д|да) printf 'yes'; return ;;
+      n|no|н|нет) printf 'no'; return ;;
+      *) echo "  введите yes или no" >&2 ;;
+    esac
+  done
+}
+
+prompt_choice() {
+  local prompt="$1" allowed="$2" default="${3:-}" val=""
+  if [[ "${ASSUME_YES}" == "1" ]] || ! have_tty; then
+    printf '%s' "$default"
+    return
+  fi
+  while true; do
+    if [[ -n "$default" ]]; then
+      read -r -p "$prompt [${default}]: " val || true
+    else
+      read -r -p "$prompt: " val || true
+    fi
+    val="${val:-$default}"
+    for item in $allowed; do
+      if [[ "$val" == "$item" ]]; then
+        printf '%s' "$val"
+        return
+      fi
+    done
+    echo "  допустимо: ${allowed}" >&2
+  done
+}
+
 valid_ident() {
-  [[ "$1" =~ ^[a-zA-Z_][a-zA-Z0-9_]*$ ]]
+  [[ "$1" =~ ^[a-zA-Z_][a-zA-Z0-9_]{0,62}$ ]]
 }
 
 valid_email() {
   [[ "$1" =~ ^[^@[:space:]]+@[^@[:space:]]+\.[^@[:space:]]+$ ]]
+}
+
+valid_port() {
+  [[ "$1" =~ ^[0-9]+$ ]] && (( 1 <= $1 && $1 <= 65535 ))
 }
 
 public_url() {
@@ -214,6 +334,14 @@ public_url() {
   fi
 }
 
+role_ok() {
+  local r="$1"
+  for item in $VALID_ROLES; do
+    [[ "$r" == "$item" ]] && return 0
+  done
+  return 1
+}
+
 # =============================================================================
 # Конфиг из файла
 # =============================================================================
@@ -225,6 +353,15 @@ load_conf_file() {
   set +a
   ASSUME_YES=1
   ok "Загружен conf: ${CONF_FILE} (неинтерактивный режим)"
+
+  # Доп. УЗ из файла (tsv: username|email|full_name|password|role)
+  if [[ -n "${VBX_EXTRA_USERS_FILE}" && -f "${VBX_EXTRA_USERS_FILE}" ]]; then
+    while IFS= read -r line || [[ -n "$line" ]]; do
+      [[ -z "$line" || "$line" =~ ^[[:space:]]*# ]] && continue
+      EXTRA_USERS+=("$line")
+    done < "${VBX_EXTRA_USERS_FILE}"
+    ok "Доп. УЗ из файла: ${#EXTRA_USERS[@]} шт. (${VBX_EXTRA_USERS_FILE})"
+  fi
 }
 
 # =============================================================================
@@ -237,14 +374,39 @@ wizard() {
   fi
 
   stage "Этап 0 · Добро пожаловать"
-  echo "Установщик VBXSystem на РЕД ОС / RHEL-like (Docker Compose)."
-  echo "На каждом этапе будут запрошены нужные данные."
-  echo
-  echo "  • Пароль Admin генерируется автоматически и показывается в КОНЦЕ."
-  echo "  • Пароли БД/Redis можно ввести или оставить пустыми (генерация)."
-  echo "  • Можно создать дополнительную УЗ (имя + пароль)."
+  cat <<EOF
+Установщик VBXSystem на РЕД ОС / RHEL-like (Docker Compose).
+
+Как устроен мастер:
+  • Каждый этап запрашивает только свои данные (сеть → БД → Redis → УЗ …).
+  • Пароль Admin НЕ спрашивается — генерируется в конце и печатается один раз.
+  • Пароли PostgreSQL / Redis / SECRET_KEY: ввод или Enter = генерация.
+  • Доп. УЗ (аналитик и т.п.): логин, ФИО, роль и пароль — вручную.
+EOF
   echo
   confirm "Продолжить установку?" "y" || die "Отменено пользователем"
+
+  # --- существующая установка ---
+  if [[ -d "${VBX_INSTALL_DIR}/app" ]] || docker volume ls --format '{{.Name}}' 2>/dev/null | grep -qE 'vbx_pg|vbxsystem_vbx_pg'; then
+    stage "Этап 0b · Обнаружена предыдущая установка"
+    echo "Каталог/volumes VBX уже есть. Повторная установка без очистки volumes"
+    echo "оставит старого Admin в БД — новый пароль из отчёта НЕ подойдёт."
+    echo
+    local purge
+    if [[ "${VBX_PURGE_EXISTING}" == "yes" ]]; then
+      purge="yes"
+    elif [[ "${VBX_PURGE_EXISTING}" == "no" ]]; then
+      purge="no"
+    else
+      purge="$(prompt_yes_no "Удалить volumes и начать с чистой БД? (рекомендуется)" "yes")"
+    fi
+    if [[ "$purge" == "yes" ]]; then
+      FRESH_VOLUMES=1
+      ok "Будет выполнена очистка volumes перед запуском"
+    else
+      warn "Volumes сохраняются — пароль Admin из отчёта может не совпасть с БД"
+    fi
+  fi
 
   stage "Этап 1 · Сеть и URL"
   local detect_host
@@ -252,125 +414,185 @@ wizard() {
   detect_host="${detect_host:-$(hostname -f 2>/dev/null || hostname || echo 127.0.0.1)}"
   VBX_HOST="$(prompt_line "IP или DNS сервера (как открывают пользователи)" "${VBX_HOST:-$detect_host}")"
   [[ -n "${VBX_HOST}" ]] || die "Хост обязателен"
+  [[ ! "${VBX_HOST}" =~ [[:space:]] ]] || die "Хост не должен содержать пробелы"
 
-  VBX_SCHEME="$(prompt_line "Схема (http|https)" "${VBX_SCHEME}")"
-  [[ "${VBX_SCHEME}" == "http" || "${VBX_SCHEME}" == "https" ]] || die "Схема: http или https"
+  VBX_SCHEME="$(prompt_choice "Схема (http|https)" "http https" "${VBX_SCHEME}")"
   VBX_HTTP_PORT="$(prompt_line "HTTP порт web" "${VBX_HTTP_PORT}")"
-  VBX_HTTPS_PORT="$(prompt_line "HTTPS порт (если нужен)" "${VBX_HTTPS_PORT}")"
-  VBX_API_PORT="$(prompt_line "Порт API (обычно только localhost)" "${VBX_API_PORT}")"
+  valid_port "${VBX_HTTP_PORT}" || die "Некорректный HTTP порт: ${VBX_HTTP_PORT}"
+  VBX_HTTPS_PORT="$(prompt_line "HTTPS порт" "${VBX_HTTPS_PORT}")"
+  valid_port "${VBX_HTTPS_PORT}" || die "Некорректный HTTPS порт: ${VBX_HTTPS_PORT}"
+  VBX_API_PORT="$(prompt_line "Порт API (обычно localhost)" "${VBX_API_PORT}")"
+  valid_port "${VBX_API_PORT}" || die "Некорректный API порт: ${VBX_API_PORT}"
 
   if [[ "${VBX_SCHEME}" == "https" ]]; then
-    VBX_TLS_CERT_PATH="$(prompt_line "Путь к TLS certificate (fullchain)" "${VBX_TLS_CERT_PATH}")"
-    VBX_TLS_KEY_PATH="$(prompt_line "Путь к TLS private key" "${VBX_TLS_KEY_PATH}")"
+    VBX_TLS_CERT_PATH="$(prompt_line "Путь к TLS certificate (fullchain.pem)" "${VBX_TLS_CERT_PATH}")"
+    VBX_TLS_KEY_PATH="$(prompt_line "Путь к TLS private key (privkey.pem)" "${VBX_TLS_KEY_PATH}")"
     if [[ -n "${VBX_TLS_CERT_PATH}" && ! -f "${VBX_TLS_CERT_PATH}" ]]; then
-      warn "Файл сертификата не найден: ${VBX_TLS_CERT_PATH} (проверьте после установки)"
+      warn "Файл сертификата не найден: ${VBX_TLS_CERT_PATH}"
+    fi
+    if [[ -n "${VBX_TLS_KEY_PATH}" && ! -f "${VBX_TLS_KEY_PATH}" ]]; then
+      warn "Файл ключа не найден: ${VBX_TLS_KEY_PATH}"
     fi
   fi
 
   stage "Этап 2 · Каталоги установки"
   VBX_INSTALL_DIR="$(prompt_line "Каталог установки" "${VBX_INSTALL_DIR}")"
-  VBX_SOURCE_MODE="$(prompt_line "Источник кода (local|archive)" "${VBX_SOURCE_MODE}")"
+  [[ "${VBX_INSTALL_DIR}" = /* ]] || die "Каталог установки должен быть абсолютным путём"
+  VBX_SOURCE_MODE="$(prompt_choice "Источник кода (local|archive)" "local archive" "${VBX_SOURCE_MODE}")"
   if [[ "${VBX_SOURCE_MODE}" == "archive" ]]; then
     VBX_ARCHIVE_PATH="$(prompt_line "Путь к tar.gz релиза" "${VBX_ARCHIVE_PATH}")"
+    [[ -n "${VBX_ARCHIVE_PATH}" ]] || die "Укажите путь к архиву"
   else
     VBX_REPO_PATH="$(prompt_line "Путь к репозиторию (пусто = этот clone)" "${VBX_REPO_PATH:-$REPO_ROOT}")"
   fi
 
   stage "Этап 3 · База данных PostgreSQL (контейнер)"
-  echo "PostgreSQL поднимается в Docker. Задайте имя БД, роль и пароль."
-  echo "Текущий пароль postgres на хосте НЕ нужен."
+  cat <<EOF
+PostgreSQL поднимается в Docker Compose (не системный postgres хоста).
+Нужны: имя БД, роль (пользователь) и пароль этой роли.
+EOF
   echo
   VBX_POSTGRES_DB="$(prompt_line "Имя базы" "${VBX_POSTGRES_DB}")"
   VBX_POSTGRES_USER="$(prompt_line "Роль (пользователь) БД" "${VBX_POSTGRES_USER}")"
-  valid_ident "${VBX_POSTGRES_DB}" || die "Имя БД: только [A-Za-z_][A-Za-z0-9_]*"
-  valid_ident "${VBX_POSTGRES_USER}" || die "Роль БД: только [A-Za-z_][A-Za-z0-9_]*"
+  valid_ident "${VBX_POSTGRES_DB}" || die "Имя БД: [A-Za-z_][A-Za-z0-9_]{0,62}"
+  valid_ident "${VBX_POSTGRES_USER}" || die "Роль БД: [A-Za-z_][A-Za-z0-9_]{0,62}"
   echo
-  echo "Пароль роли ${VBX_POSTGRES_USER}:"
+  echo "Пароль роли «${VBX_POSTGRES_USER}»:"
   if [[ -z "${VBX_POSTGRES_PASSWORD}" ]]; then
-    VBX_POSTGRES_PASSWORD="$(prompt_password "  Пароль PostgreSQL" 1)"
+    prompt_password "  Пароль PostgreSQL" 1 || die "Пароль PostgreSQL пуст"
+    VBX_POSTGRES_PASSWORD="${_LAST_SECRET}"
+    GEN_POSTGRES="${_LAST_SECRET_GENERATED}"
   else
-    ok "Пароль PostgreSQL уже задан (env/conf)"
+    ok "Пароль PostgreSQL уже задан (env/conf) — оставляем"
   fi
   [[ -n "${VBX_POSTGRES_PASSWORD}" ]] || die "Пароль PostgreSQL пуст"
+  [[ ${#VBX_POSTGRES_PASSWORD} -ge 10 ]] || die "Пароль PostgreSQL короче 10 символов"
 
   stage "Этап 4 · Redis"
-  echo "Пароль Redis (requirepass):"
+  echo "Пароль Redis (requirepass в контейнере):"
   if [[ -z "${VBX_REDIS_PASSWORD}" ]]; then
-    VBX_REDIS_PASSWORD="$(prompt_password "  Пароль Redis" 1)"
+    prompt_password "  Пароль Redis" 1 || die "Пароль Redis пуст"
+    VBX_REDIS_PASSWORD="${_LAST_SECRET}"
+    GEN_REDIS="${_LAST_SECRET_GENERATED}"
   else
-    ok "Пароль Redis уже задан (env/conf)"
+    ok "Пароль Redis уже задан (env/conf) — оставляем"
   fi
   [[ -n "${VBX_REDIS_PASSWORD}" ]] || die "Пароль Redis пуст"
+  [[ ${#VBX_REDIS_PASSWORD} -ge 10 ]] || die "Пароль Redis короче 10 символов"
 
-  stage "Этап 5 · Организация и локаль"
+  stage "Этап 5 · Секрет приложения (JWT / cookies)"
+  echo "VBX_SECRET_KEY подписывает JWT и сессии. Не делитесь им."
+  if [[ -z "${VBX_SECRET_KEY}" ]]; then
+    if confirm "Сгенерировать VBX_SECRET_KEY автоматически?" "y"; then
+      VBX_SECRET_KEY="$(rand_secret 32)"
+      GEN_SECRET=1
+      ok "SECRET_KEY сгенерирован"
+    else
+      prompt_password "  VBX_SECRET_KEY" 1 || die "VBX_SECRET_KEY пуст"
+      VBX_SECRET_KEY="${_LAST_SECRET}"
+      GEN_SECRET="${_LAST_SECRET_GENERATED}"
+    fi
+  else
+    ok "SECRET_KEY уже задан (env/conf)"
+  fi
+  [[ -n "${VBX_SECRET_KEY}" ]] || die "VBX_SECRET_KEY пуст"
+  [[ ${#VBX_SECRET_KEY} -ge 16 ]] || die "VBX_SECRET_KEY слишком короткий (мин. 16)"
+
+  stage "Этап 6 · Организация и локаль"
   VBX_ADMIN_ORG="$(prompt_line "Название организации" "${VBX_ADMIN_ORG:-ООО Пример}")"
+  [[ -n "${VBX_ADMIN_ORG}" ]] || die "Организация обязательна"
   VBX_TIMEZONE="$(prompt_line "Часовой пояс" "${VBX_TIMEZONE}")"
 
-  stage "Этап 6 · Учётная запись Admin (пароль сгенерируется в конце)"
-  echo "Сейчас запрашиваются только профиль Admin. Пароль НЕ спрашивается —"
-  echo "установщик сгенерирует его сам и покажет в финальном отчёте."
+  stage "Этап 7 · Учётная запись Admin (пароль сгенерируется в конце)"
+  cat <<EOF
+Сейчас — только профиль супер-администратора.
+Пароль НЕ вводится: установщик сгенерирует его сам после поднятия стека
+и покажет в финальном отчёте (консоль + VBX_INSTALL_INFO.txt).
+EOF
   echo
   VBX_ADMIN_USERNAME="$(prompt_line "Логин Admin" "${VBX_ADMIN_USERNAME}")"
-  valid_ident "${VBX_ADMIN_USERNAME}" || die "Логин Admin: [A-Za-z_][A-Za-z0-9_]*"
+  valid_ident "${VBX_ADMIN_USERNAME}" || die "Логин Admin: [A-Za-z_][A-Za-z0-9_]{0,62}"
   VBX_ADMIN_EMAIL="$(prompt_line "Email Admin" "${VBX_ADMIN_EMAIL:-${VBX_ADMIN_USERNAME}@${VBX_HOST}}")"
   valid_email "${VBX_ADMIN_EMAIL}" || die "Некорректный email: ${VBX_ADMIN_EMAIL}"
   VBX_ADMIN_FULL_NAME="$(prompt_line "ФИО Admin" "${VBX_ADMIN_FULL_NAME:-Главный Администратор}")"
+  [[ -n "${VBX_ADMIN_FULL_NAME}" ]] || die "ФИО Admin обязательно"
   VBX_ADMIN_TITLE="$(prompt_line "Должность" "${VBX_ADMIN_TITLE}")"
   VBX_ADMIN_PHONE="$(prompt_line "Телефон (опционально)" "${VBX_ADMIN_PHONE}")"
-  # Пароль Admin всегда генерируем сами (даже если в conf был дефолт)
-  VBX_ADMIN_PASSWORD="$(rand_admin_password)"
-  ok "Пароль Admin сгенерирован (будет показан только в конце)"
+  # Пароль намеренно НЕ генерируем здесь — только в конце (generate_admin_password)
+  VBX_ADMIN_PASSWORD=""
+  ok "Профиль Admin принят; пароль будет сгенерирован в финале"
 
-  stage "Этап 7 · Дополнительная учётная запись (опционально)"
+  stage "Этап 8 · Дополнительная учётная запись (опционально)"
   EXTRA_USERS=()
   if confirm "Создать ещё одну УЗ (например аналитика)?" "n"; then
     while true; do
       local eu_user eu_email eu_name eu_pass eu_role
-      eu_user="$(prompt_line "  Логин доп. УЗ" "analyst")"
-      valid_ident "${eu_user}" || { warn "Некорректный логин"; continue; }
+      echo
+      echo "  —— новая УЗ ——"
+      eu_user="$(prompt_line "  Логин" "analyst")"
+      if ! valid_ident "${eu_user}"; then
+        warn "Некорректный логин (нужен [A-Za-z_][A-Za-z0-9_]*)"
+        continue
+      fi
+      if [[ "${eu_user}" == "${VBX_ADMIN_USERNAME}" ]]; then
+        warn "Логин совпадает с Admin — выберите другой"
+        continue
+      fi
       eu_email="$(prompt_line "  Email" "${eu_user}@${VBX_HOST}")"
-      valid_email "${eu_email}" || { warn "Некорректный email"; continue; }
-      eu_name="$(prompt_line "  ФИО" "Аналитик ИБ")"
-      eu_role="$(prompt_line "  Роль (analyst|viewer|admin|ticket_manager)" "analyst")"
-      echo "  Пароль для ${eu_user} (обязателен — введите сами):"
-      eu_pass="$(prompt_password "  Пароль ${eu_user}" 0)"
+      if ! valid_email "${eu_email}"; then
+        warn "Некорректный email"
+        continue
+      fi
+      if [[ "${eu_email}" == "${VBX_ADMIN_EMAIL}" ]]; then
+        warn "Email совпадает с Admin — выберите другой"
+        continue
+      fi
+      eu_name="$(prompt_line "  ФИО (имя пользователя)" "Аналитик ИБ")"
+      [[ -n "${eu_name}" ]] || { warn "ФИО обязательно"; continue; }
+      eu_role="$(prompt_choice "  Роль (${VALID_ROLES})" "${VALID_ROLES}" "analyst")"
+      echo "  Пароль для «${eu_user}» (обязателен — введите сами, Enter≠генерация):"
+      if ! prompt_password "  Пароль ${eu_user}" 0; then
+        warn "Пароль обязателен"
+        continue
+      fi
+      eu_pass="${_LAST_SECRET}"
       [[ -n "${eu_pass}" ]] || { warn "Пароль обязателен"; continue; }
       EXTRA_USERS+=("${eu_user}|${eu_email}|${eu_name}|${eu_pass}|${eu_role}")
-      ok "Доп. УЗ запланирована: ${eu_user} (${eu_role})"
+      ok "Доп. УЗ запланирована: ${eu_user} / ${eu_name} (${eu_role})"
       confirm "Добавить ещё одну УЗ?" "n" || break
     done
   else
     ok "Доп. УЗ пропускаем"
   fi
 
-  stage "Этап 8 · Источники данных (опционально)"
-  VBX_NVD_API_KEY="$(prompt_line "NVD API key (пусто = задать позже в UI)" "${VBX_NVD_API_KEY}")"
+  stage "Этап 9 · Источники данных (опционально)"
+  VBX_NVD_API_KEY="$(prompt_line "NVD API key (пусто = задать позже в UI → База данных)" "${VBX_NVD_API_KEY}")"
 
-  stage "Этап 9 · Система / firewall / Docker"
-  VBX_CONFIGURE_FIREWALL="$(prompt_line "Открыть порты в firewalld? (yes|no)" "${VBX_CONFIGURE_FIREWALL}")"
-  VBX_ADD_USER_TO_DOCKER="$(prompt_line "Добавить ${INSTALL_USER} в группу docker? (yes|no)" "${VBX_ADD_USER_TO_DOCKER}")"
-  VBX_DOCKER_SMOKE_TEST="$(prompt_line "Smoke-test hello-world? (yes|no)" "${VBX_DOCKER_SMOKE_TEST}")"
-  VBX_DNF_UPDATE="$(prompt_line "Выполнить dnf update? (yes|no, обычно no)" "${VBX_DNF_UPDATE}")"
-  VBX_MAILHOG="$(prompt_line "Поднять MailHog для SMTP-тестов? (yes|no)" "${VBX_MAILHOG}")"
-
-  if [[ -z "${VBX_SECRET_KEY}" ]]; then
-    VBX_SECRET_KEY="$(rand_secret 32)"
-  fi
+  stage "Этап 10 · Система / firewall / Docker"
+  VBX_CONFIGURE_FIREWALL="$(prompt_yes_no "Открыть порты в firewalld?" "${VBX_CONFIGURE_FIREWALL}")"
+  VBX_ADD_USER_TO_DOCKER="$(prompt_yes_no "Добавить ${INSTALL_USER} в группу docker?" "${VBX_ADD_USER_TO_DOCKER}")"
+  VBX_DOCKER_SMOKE_TEST="$(prompt_yes_no "Smoke-test hello-world?" "${VBX_DOCKER_SMOKE_TEST}")"
+  VBX_DNF_UPDATE="$(prompt_yes_no "Выполнить dnf update? (обычно no)" "${VBX_DNF_UPDATE}")"
+  VBX_MAILHOG="$(prompt_yes_no "Поднять MailHog для SMTP-тестов?" "${VBX_MAILHOG}")"
 
   stage "Сводка перед установкой"
   cat <<EOF
   Хост:            ${VBX_HOST}
   URL:             $(public_url)
   Каталог:         ${VBX_INSTALL_DIR}
-  PostgreSQL:      ${VBX_POSTGRES_USER}@/${VBX_POSTGRES_DB}  (пароль задан)
-  Redis:           пароль задан
+  Источник:        ${VBX_SOURCE_MODE}
+  PostgreSQL:      ${VBX_POSTGRES_USER}@/${VBX_POSTGRES_DB}  (пароль: $([ "${GEN_POSTGRES}" = 1 ] && echo сгенерирован || echo задан вами))
+  Redis:           пароль $([ "${GEN_REDIS}" = 1 ] && echo сгенерирован || echo задан вами)
+  SECRET_KEY:      $([ "${GEN_SECRET}" = 1 ] && echo сгенерирован || echo задан)
   Admin логин:     ${VBX_ADMIN_USERNAME}  <${VBX_ADMIN_EMAIL}>
   Admin ФИО:       ${VBX_ADMIN_FULL_NAME}
-  Admin пароль:    *** будет показан в конце ***
+  Admin пароль:    *** будет сгенерирован и показан ТОЛЬКО в конце ***
   Организация:     ${VBX_ADMIN_ORG}
   Доп. УЗ:         ${#EXTRA_USERS[@]} шт.
   NVD key:         ${VBX_NVD_API_KEY:+задан}${VBX_NVD_API_KEY:-не задан}
   Firewall:        ${VBX_CONFIGURE_FIREWALL}
+  MailHog:         ${VBX_MAILHOG}
+  Чистые volumes:  $([ "${FRESH_VOLUMES}" = 1 ] && echo да || echo нет)
 EOF
   echo
   confirm "Всё верно — начать установку?" "y" || die "Отменено"
@@ -383,6 +605,7 @@ prepare_dirs() {
   mkdir -p "${VBX_INSTALL_DIR}"/{logs,data,backups,uploads,certs,config}
   LOG_FILE="${VBX_INSTALL_DIR}/logs/install-$(date +%Y%m%d-%H%M%S).log"
   touch "${LOG_FILE}"
+  chmod 600 "${LOG_FILE}"
   if [[ "${VBX_INSTALL_REPORT}" = /* ]]; then
     REPORT_FILE="${VBX_INSTALL_REPORT}"
   else
@@ -392,14 +615,16 @@ prepare_dirs() {
   : > "${EXTRA_USERS_FILE}"
   chmod 600 "${EXTRA_USERS_FILE}"
   local line
-  for line in "${EXTRA_USERS[@]:-}"; do
-    [[ -n "${line}" ]] || continue
-    printf '%s\n' "${line}" >> "${EXTRA_USERS_FILE}"
-  done
+  if ((${#EXTRA_USERS[@]})); then
+    for line in "${EXTRA_USERS[@]}"; do
+      [[ -n "${line}" ]] || continue
+      printf '%s\n' "${line}" >> "${EXTRA_USERS_FILE}"
+    done
+  fi
 }
 
 # =============================================================================
-# ОС / Docker / код (из прежнего установщика)
+# ОС / Docker / код
 # =============================================================================
 detect_os() {
   log "Проверка ОС…"
@@ -419,12 +644,13 @@ detect_os() {
     warn "Не удалось определить дистрибутив"
   fi
   command -v dnf >/dev/null 2>&1 || die "Нужен dnf (РЕД ОС / RHEL-like)"
+  command -v python3 >/dev/null 2>&1 || warn "python3 желателен (экранирование .env / urlencode)"
 }
 
 install_host_packages() {
   log "Установка базовых пакетов…"
   dnf -y install \
-    ca-certificates curl wget tar gzip unzip git openssl jq \
+    ca-certificates curl wget tar gzip unzip git openssl jq python3 \
     firewalld chrony shadow-utils findutils grep sed which rsync \
     2>&1 | tee -a "${LOG_FILE}"
   if [[ "${VBX_DNF_UPDATE}" == "yes" ]]; then
@@ -448,7 +674,6 @@ install_docker() {
     ok "Docker: $(docker --version)"
   fi
 
-  # Cloud/VM: hairpin bridge иногда блокирует container↔container
   if [[ -x "${REPO_ROOT}/scripts/fix-docker-bridge.sh" ]]; then
     bash "${REPO_ROOT}/scripts/fix-docker-bridge.sh" 2>&1 | tee -a "${LOG_FILE}" || true
   else
@@ -502,9 +727,10 @@ prepare_source() {
           --exclude '.git/' --exclude 'node_modules/' --exclude '.next/' \
           --exclude '__pycache__/' --exclude '.venv/' \
           --exclude 'deploy/redos/vbx.conf' \
+          --exclude '.env' \
           "${src}/" "${VBX_INSTALL_DIR}/app/"
       else
-        tar -C "${src}" --exclude='.git' --exclude='node_modules' --exclude='.next' -cf - . \
+        tar -C "${src}" --exclude='.git' --exclude='node_modules' --exclude='.next' --exclude='.env' -cf - . \
           | tar -C "${VBX_INSTALL_DIR}/app" -xf -
       fi
       ;;
@@ -522,59 +748,81 @@ prepare_source() {
   APP_DIR="${VBX_INSTALL_DIR}/app"
   [[ -f "${APP_DIR}/docker-compose.yml" ]] || die "Нет docker-compose.yml в ${APP_DIR}"
   ok "Код в ${APP_DIR}"
+
+  # TLS: копируем в certs/ (для будущего reverse-proxy / документации)
+  if [[ -n "${VBX_TLS_CERT_PATH}" && -f "${VBX_TLS_CERT_PATH}" ]]; then
+    cp -a "${VBX_TLS_CERT_PATH}" "${VBX_INSTALL_DIR}/certs/fullchain.pem"
+    chmod 644 "${VBX_INSTALL_DIR}/certs/fullchain.pem"
+  fi
+  if [[ -n "${VBX_TLS_KEY_PATH}" && -f "${VBX_TLS_KEY_PATH}" ]]; then
+    cp -a "${VBX_TLS_KEY_PATH}" "${VBX_INSTALL_DIR}/certs/privkey.pem"
+    chmod 600 "${VBX_INSTALL_DIR}/certs/privkey.pem"
+  fi
+}
+
+generate_admin_password() {
+  stage "Генерация пароля Admin"
+  VBX_ADMIN_PASSWORD="$(rand_admin_password)"
+  GEN_ADMIN=1
+  ok "Пароль Admin сгенерирован (будет показан только в финальном отчёте)"
 }
 
 write_env() {
   log "Запись секретов и .env…"
-  [[ -n "${VBX_SECRET_KEY}" ]] || VBX_SECRET_KEY="$(rand_secret 32)"
-  [[ -n "${VBX_POSTGRES_PASSWORD}" ]] || VBX_POSTGRES_PASSWORD="$(rand_secret 16)"
-  [[ -n "${VBX_REDIS_PASSWORD}" ]] || VBX_REDIS_PASSWORD="$(rand_secret 16)"
-  [[ -n "${VBX_ADMIN_PASSWORD}" ]] || VBX_ADMIN_PASSWORD="$(rand_admin_password)"
+  [[ -n "${VBX_SECRET_KEY}" ]] || { VBX_SECRET_KEY="$(rand_secret 32)"; GEN_SECRET=1; }
+  [[ -n "${VBX_POSTGRES_PASSWORD}" ]] || { VBX_POSTGRES_PASSWORD="$(rand_secret 16)"; GEN_POSTGRES=1; }
+  [[ -n "${VBX_REDIS_PASSWORD}" ]] || { VBX_REDIS_PASSWORD="$(rand_secret 16)"; GEN_REDIS=1; }
+  [[ -n "${VBX_ADMIN_PASSWORD}" ]] || generate_admin_password
 
-  local url
+  local url enc_user enc_pass enc_db
   url="$(public_url)"
+  enc_user="$(urlencode "${VBX_POSTGRES_USER}")"
+  enc_pass="$(urlencode "${VBX_POSTGRES_PASSWORD}")"
+  enc_db="$(urlencode "${VBX_POSTGRES_DB}")"
+  local enc_redis
+  enc_redis="$(urlencode "${VBX_REDIS_PASSWORD}")"
 
   umask 077
-  cat > "${VBX_INSTALL_DIR}/config/vbx.env" <<EOF
-# Generated by deploy/redos/install.sh on ${STARTED_AT}
-# DO NOT COMMIT — mode 600
+  local env_path="${VBX_INSTALL_DIR}/config/vbx.env"
+  : > "${env_path}"
+  {
+    echo "# Generated by deploy/redos/install.sh on ${STARTED_AT}"
+    echo "# DO NOT COMMIT — mode 600"
+    echo
+  } >> "${env_path}"
 
-VBX_HOST=${VBX_HOST}
-VBX_SCHEME=${VBX_SCHEME}
-VBX_HTTP_PORT=${VBX_HTTP_PORT}
-VBX_HTTPS_PORT=${VBX_HTTPS_PORT}
-VBX_API_PORT=${VBX_API_PORT}
-VBX_PUBLIC_URL=${url}
+  env_write_pair "${env_path}" VBX_HOST "${VBX_HOST}"
+  env_write_pair "${env_path}" VBX_SCHEME "${VBX_SCHEME}"
+  env_write_pair "${env_path}" VBX_HTTP_PORT "${VBX_HTTP_PORT}"
+  env_write_pair "${env_path}" VBX_HTTPS_PORT "${VBX_HTTPS_PORT}"
+  env_write_pair "${env_path}" VBX_API_PORT "${VBX_API_PORT}"
+  env_write_pair "${env_path}" VBX_PUBLIC_URL "${url}"
+  env_write_pair "${env_path}" VBX_SECRET_KEY "${VBX_SECRET_KEY}"
+  env_write_pair "${env_path}" VBX_POSTGRES_DB "${VBX_POSTGRES_DB}"
+  env_write_pair "${env_path}" VBX_POSTGRES_USER "${VBX_POSTGRES_USER}"
+  env_write_pair "${env_path}" VBX_POSTGRES_PASSWORD "${VBX_POSTGRES_PASSWORD}"
+  env_write_pair "${env_path}" VBX_REDIS_PASSWORD "${VBX_REDIS_PASSWORD}"
+  env_write_pair "${env_path}" VBX_NVD_API_KEY "${VBX_NVD_API_KEY}"
+  env_write_pair "${env_path}" VBX_ADMIN_USERNAME "${VBX_ADMIN_USERNAME}"
+  env_write_pair "${env_path}" VBX_ADMIN_EMAIL "${VBX_ADMIN_EMAIL}"
+  env_write_pair "${env_path}" VBX_ADMIN_PASSWORD "${VBX_ADMIN_PASSWORD}"
+  env_write_pair "${env_path}" VBX_ADMIN_FULL_NAME "${VBX_ADMIN_FULL_NAME}"
+  env_write_pair "${env_path}" VBX_ADMIN_ORG "${VBX_ADMIN_ORG}"
+  env_write_pair "${env_path}" VBX_ADMIN_TITLE "${VBX_ADMIN_TITLE}"
+  env_write_pair "${env_path}" VBX_ADMIN_PHONE "${VBX_ADMIN_PHONE}"
+  env_write_pair "${env_path}" VBX_TIMEZONE "${VBX_TIMEZONE}"
+  env_write_pair "${env_path}" VBX_POSTGRES_MEM_LIMIT "${VBX_POSTGRES_MEM_LIMIT}"
+  env_write_pair "${env_path}" VBX_API_MEM_LIMIT "${VBX_API_MEM_LIMIT}"
+  env_write_pair "${env_path}" VBX_WEB_MEM_LIMIT "${VBX_WEB_MEM_LIMIT}"
+  env_write_pair "${env_path}" TZ "${VBX_TIMEZONE}"
+  env_write_pair "${env_path}" VBX_CORS_ORIGINS "${url},http://127.0.0.1,http://localhost"
+  env_write_pair "${env_path}" VBX_API_INTERNAL_URL "http://api:8000"
+  env_write_pair "${env_path}" VBX_DATABASE_URL "postgresql+psycopg://${enc_user}:${enc_pass}@postgres:5432/${enc_db}"
+  env_write_pair "${env_path}" VBX_REDIS_URL "redis://:${enc_redis}@redis:6379/0"
 
-VBX_SECRET_KEY=${VBX_SECRET_KEY}
-VBX_POSTGRES_DB=${VBX_POSTGRES_DB}
-VBX_POSTGRES_USER=${VBX_POSTGRES_USER}
-VBX_POSTGRES_PASSWORD=${VBX_POSTGRES_PASSWORD}
-VBX_REDIS_PASSWORD=${VBX_REDIS_PASSWORD}
-VBX_NVD_API_KEY=${VBX_NVD_API_KEY}
-
-VBX_ADMIN_USERNAME=${VBX_ADMIN_USERNAME}
-VBX_ADMIN_EMAIL=${VBX_ADMIN_EMAIL}
-VBX_ADMIN_PASSWORD=${VBX_ADMIN_PASSWORD}
-VBX_ADMIN_FULL_NAME=${VBX_ADMIN_FULL_NAME}
-VBX_ADMIN_ORG=${VBX_ADMIN_ORG}
-VBX_ADMIN_TITLE=${VBX_ADMIN_TITLE}
-VBX_ADMIN_PHONE=${VBX_ADMIN_PHONE}
-
-VBX_TIMEZONE=${VBX_TIMEZONE}
-VBX_POSTGRES_MEM_LIMIT=${VBX_POSTGRES_MEM_LIMIT}
-VBX_API_MEM_LIMIT=${VBX_API_MEM_LIMIT}
-VBX_WEB_MEM_LIMIT=${VBX_WEB_MEM_LIMIT}
-TZ=${VBX_TIMEZONE}
-VBX_CORS_ORIGINS=${url},http://127.0.0.1,http://localhost
-VBX_API_INTERNAL_URL=http://api:8000
-VBX_DATABASE_URL=postgresql+psycopg://${VBX_POSTGRES_USER}:${VBX_POSTGRES_PASSWORD}@postgres:5432/${VBX_POSTGRES_DB}
-VBX_REDIS_URL=redis://:${VBX_REDIS_PASSWORD}@redis:6379/0
-EOF
-
-  cp -a "${VBX_INSTALL_DIR}/config/vbx.env" "${APP_DIR}/.env"
-  chmod 600 "${VBX_INSTALL_DIR}/config/vbx.env" "${APP_DIR}/.env"
-  ok ".env записан (mode 600)"
+  cp -a "${env_path}" "${APP_DIR}/.env"
+  chmod 600 "${env_path}" "${APP_DIR}/.env"
+  ok ".env записан (mode 600, значения экранированы)"
 }
 
 configure_firewall() {
@@ -591,7 +839,6 @@ configure_firewall() {
   if systemctl is-active --quiet firewalld; then
     firewall-cmd --permanent --add-port="${VBX_HTTP_PORT}/tcp" || true
     firewall-cmd --permanent --add-port="${VBX_HTTPS_PORT}/tcp" || true
-    # API наружу по умолчанию не рекламируем, но для локальной отладки открываем
     firewall-cmd --permanent --add-port="${VBX_API_PORT}/tcp" || true
     firewall-cmd --reload || true
     ok "Порты ${VBX_HTTP_PORT}/${VBX_HTTPS_PORT}/${VBX_API_PORT} tcp"
@@ -604,10 +851,23 @@ compose() {
   ( cd "${APP_DIR}" && docker compose --env-file .env "$@" )
 }
 
+maybe_purge_volumes() {
+  if [[ "${FRESH_VOLUMES}" != "1" ]]; then
+    return
+  fi
+  log "Очистка предыдущего стека и volumes…"
+  if [[ -f "${APP_DIR}/docker-compose.yml" ]]; then
+    compose down -v 2>&1 | tee -a "${LOG_FILE}" || true
+  fi
+  # На случай если app ещё не скопирован, а volumes от прошлого compose-проекта остались
+  docker volume ls -q | grep -E 'vbx_pg|vbx_redis|vbx_uploads' | while read -r vol; do
+    docker volume rm -f "$vol" 2>/dev/null || true
+  done
+  ok "Volumes очищены"
+}
+
 start_stack() {
   log "Сборка и запуск стека…"
-  local profiles=()
-  # MailHog в compose всегда есть; при no — останавливаем после up
   compose pull 2>&1 | tee -a "${LOG_FILE}" || warn "pull с предупреждениями"
   compose up -d --build 2>&1 | tee -a "${LOG_FILE}" || die "docker compose up не удался"
   if [[ "${VBX_MAILHOG}" != "yes" ]]; then
@@ -630,6 +890,89 @@ wait_healthy() {
   done
   warn "Сервисы ещё не готовы — смотрите: cd ${APP_DIR} && docker compose logs --tail=100"
   compose ps 2>&1 | tee -a "${LOG_FILE}" || true
+}
+
+verify_admin_login() {
+  log "Проверка входа Admin через API…"
+  local resp code
+  resp="$(curl -sS -o /tmp/vbx-login-check.json -w '%{http_code}' \
+    -X POST "http://127.0.0.1:${VBX_API_PORT}/auth/login" \
+    -H 'Content-Type: application/json' \
+    -d "{\"username\":\"${VBX_ADMIN_USERNAME}\",\"password\":\"${VBX_ADMIN_PASSWORD}\"}" \
+    2>/dev/null || echo "000")"
+  code="${resp: -3}"
+  if [[ "${code}" == "200" ]]; then
+    ADMIN_LOGIN_OK=1
+    ok "Admin login OK (HTTP 200)"
+    rm -f /tmp/vbx-login-check.json
+    return 0
+  fi
+  warn "Admin login не подтверждён (HTTP ${code}). Возможна старая БД без сброса volumes."
+  if [[ -f /tmp/vbx-login-check.json ]]; then
+    head -c 400 /tmp/vbx-login-check.json | tee -a "${LOG_FILE}" || true
+    echo | tee -a "${LOG_FILE}"
+    rm -f /tmp/vbx-login-check.json
+  fi
+  return 0
+}
+
+sync_admin_password() {
+  # Гарантируем, что сгенерированный пароль Admin совпадает с БД
+  # (seed не обновляет пароль уже существующего пользователя).
+  log "Синхронизация пароля Admin в БД…"
+  compose exec -T api python - <<PY 2>&1 | tee -a "${LOG_FILE}" || warn "sync Admin password failed"
+import os
+from app.db import SessionLocal
+from app.core.security import hash_password
+from app.models import User, Role
+
+username = os.environ.get("VBX_ADMIN_USERNAME", "admin")
+password = os.environ.get("VBX_ADMIN_PASSWORD", "")
+email = os.environ.get("VBX_ADMIN_EMAIL", "")
+full_name = os.environ.get("VBX_ADMIN_FULL_NAME", "")
+org = os.environ.get("VBX_ADMIN_ORG", "")
+title = os.environ.get("VBX_ADMIN_TITLE", "")
+phone = os.environ.get("VBX_ADMIN_PHONE", "")
+
+if not password:
+    raise SystemExit("empty VBX_ADMIN_PASSWORD")
+
+db = SessionLocal()
+try:
+    user = db.query(User).filter_by(username=username).one_or_none()
+    role = db.query(Role).filter_by(code="super_admin").one()
+    if not user:
+        user = User(
+            username=username,
+            email=email or f"{username}@localhost",
+            password_hash=hash_password(password),
+            full_name=full_name or username,
+            organization=org or "",
+            title=title or "",
+            phone=phone or "",
+            status="active",
+            is_super_admin=True,
+        )
+        user.roles.append(role)
+        db.add(user)
+        print(f"[ok] created admin {username}")
+    else:
+        user.password_hash = hash_password(password)
+        user.email = email or user.email
+        user.full_name = full_name or user.full_name
+        user.organization = org or user.organization
+        user.title = title or user.title
+        user.phone = phone or user.phone
+        user.status = "active"
+        user.is_super_admin = True
+        if role not in user.roles:
+            user.roles.append(role)
+        print(f"[ok] updated admin {username} password+profile")
+    db.commit()
+finally:
+    db.close()
+PY
+  ok "Пароль Admin синхронизирован с БД"
 }
 
 create_extra_users() {
@@ -657,6 +1000,7 @@ path = Path("/tmp/extra-users.tsv")
 if not path.exists():
     raise SystemExit(0)
 
+allowed = {"admin", "analyst", "viewer", "ticket_manager"}
 db = SessionLocal()
 try:
     for line in path.read_text(encoding="utf-8").splitlines():
@@ -667,13 +1011,16 @@ try:
         if len(parts) < 5:
             print(f"[skip] bad line: {line}")
             continue
-        username, email, full_name, password, role_code = parts[:5]
+        username, email, full_name, password, role_code = [p.strip() for p in parts[:5]]
+        if role_code not in allowed:
+            print(f"[skip] unknown role {role_code} for {username}")
+            continue
         if db.query(User).filter((User.username == username) | (User.email == email)).first():
             print(f"[skip] exists: {username}")
             continue
         role = db.query(Role).filter_by(code=role_code).one_or_none()
         if not role:
-            print(f"[skip] unknown role {role_code} for {username}")
+            print(f"[skip] role missing in DB: {role_code}")
             continue
         u = User(
             username=username,
@@ -692,14 +1039,26 @@ try:
         print(f"[ok] created {username} role={role_code}")
 finally:
     db.close()
+    try:
+        path.unlink(missing_ok=True)
+    except TypeError:
+        path.unlink() if path.exists() else None
 PY
-  ok "Доп. УЗ обработаны"
+
+  # Стираем пароли из локального tsv (оставляем метаданные)
+  if [[ -s "${EXTRA_USERS_FILE}" ]]; then
+    local scrubbed="${EXTRA_USERS_FILE}.meta"
+    awk -F'|' 'NF>=5 {printf "%s|%s|%s|***|%s\n", $1, $2, $3, $5}' "${EXTRA_USERS_FILE}" > "${scrubbed}"
+    mv -f "${scrubbed}" "${EXTRA_USERS_FILE}"
+    chmod 600 "${EXTRA_USERS_FILE}"
+  fi
+  ok "Доп. УЗ обработаны (пароли убраны из extra-users.tsv)"
 }
 
 write_used_conf() {
   umask 077
   cat > "${VBX_INSTALL_DIR}/config/vbx.conf.used" <<EOF
-# Snapshot of answers (без пароля Admin — он только в отчёте / vbx.env)
+# Snapshot ответов мастера (без паролей — они только в отчёте / vbx.env)
 VBX_INSTALL_DIR="${VBX_INSTALL_DIR}"
 VBX_HOST="${VBX_HOST}"
 VBX_SCHEME="${VBX_SCHEME}"
@@ -717,6 +1076,7 @@ VBX_ADMIN_PHONE="${VBX_ADMIN_PHONE}"
 VBX_TIMEZONE="${VBX_TIMEZONE}"
 VBX_SOURCE_MODE="${VBX_SOURCE_MODE}"
 VBX_CONFIGURE_FIREWALL="${VBX_CONFIGURE_FIREWALL}"
+VBX_MAILHOG="${VBX_MAILHOG}"
 EOF
   chmod 600 "${VBX_INSTALL_DIR}/config/vbx.conf.used"
 }
@@ -739,12 +1099,13 @@ VBXSystem — отчёт об установке
 Лог:             ${LOG_FILE}
 Env:             ${VBX_INSTALL_DIR}/config/vbx.env
 Conf snapshot:   ${VBX_INSTALL_DIR}/config/vbx.conf.used
+Admin login API: $([ "${ADMIN_LOGIN_OK}" = 1 ] && echo OK || echo не подтверждён)
 
 --- Доступ -------------------------------------------------------------------
 URL:             ${url}
 Login page:      ${url}/login
-API health:      http://${VBX_HOST}:${VBX_API_PORT}/health
-API ready:       http://${VBX_HOST}:${VBX_API_PORT}/ready
+API health:      http://127.0.0.1:${VBX_API_PORT}/health
+API ready:       http://127.0.0.1:${VBX_API_PORT}/ready
 
 --- СУПЕР-АДМИНИСТРАТОР (сохраните и смените после входа) --------------------
 Логин:           ${VBX_ADMIN_USERNAME}
@@ -754,26 +1115,30 @@ Email:           ${VBX_ADMIN_EMAIL}
 Организация:     ${VBX_ADMIN_ORG}
 Должность:       ${VBX_ADMIN_TITLE}
 Телефон:         ${VBX_ADMIN_PHONE}
+Источник пароля: сгенерирован установщиком ($([ "${GEN_ADMIN}" = 1 ] && echo да || echo нет))
 
 --- PostgreSQL (Docker) ------------------------------------------------------
 DB name:         ${VBX_POSTGRES_DB}
 DB user:         ${VBX_POSTGRES_USER}
 DB password:     ${VBX_POSTGRES_PASSWORD}
+Источник пароля: $([ "${GEN_POSTGRES}" = 1 ] && echo сгенерирован || echo задан оператором)
 DSN (внутри):    postgresql+psycopg://${VBX_POSTGRES_USER}:***@postgres:5432/${VBX_POSTGRES_DB}
 
 --- Redis --------------------------------------------------------------------
 Password:        ${VBX_REDIS_PASSWORD}
+Источник:        $([ "${GEN_REDIS}" = 1 ] && echo сгенерирован || echo задан оператором)
 
 --- Прочие секреты -----------------------------------------------------------
 VBX_SECRET_KEY:  ${VBX_SECRET_KEY}
+Источник:        $([ "${GEN_SECRET}" = 1 ] && echo сгенерирован || echo задан)
 NVD API key:     ${VBX_NVD_API_KEY:-<не задан — Настройки → База данных>}
 
 --- Дополнительные УЗ --------------------------------------------------------
 EOF
 
   if [[ -s "${EXTRA_USERS_FILE}" ]]; then
-    echo "(логин | email | ФИО | роль) — пароли задавались при установке и в отчёт не дублируются" >> "${REPORT_FILE}"
-    awk -F'|' '{printf "  - %s <%s> — %s [%s]\n", $1, $2, $3, $5}' "${EXTRA_USERS_FILE}" >> "${REPORT_FILE}"
+    echo "(логин | email | ФИО | роль) — пароли задавались при установке и здесь не дублируются" >> "${REPORT_FILE}"
+    awk -F'|' 'NF>=5 {printf "  - %s <%s> — %s [%s]\n", $1, $2, $3, $5}' "${EXTRA_USERS_FILE}" >> "${REPORT_FILE}"
   else
     echo "(нет)" >> "${REPORT_FILE}"
   fi
@@ -801,6 +1166,7 @@ bash ${APP_DIR}/deploy/redos/validate-install.sh
 2) Смените пароль Admin после первого входа (Профиль).
 3) Для prod: HTTPS, VBX_TRUSTED_HOSTS, узкий VBX_CORS_ORIGINS, не публикуйте :${VBX_API_PORT}.
 4) NVD key — в UI, если не задали при установке.
+5) При повторной установке без очистки volumes пароль Admin в БД не обновится.
 ================================================================================
 EOF
   chmod 600 "${REPORT_FILE}"
@@ -814,24 +1180,35 @@ print_summary() {
   echo "================================================================================"
   echo -e "${C_GRN}${C_BOLD}VBXSystem: установка завершена${C_RST}"
   echo "================================================================================"
-  echo -e "  URL:           ${C_BOLD}${url}${C_RST}"
-  echo -e "  Login:         ${url}/login"
+  echo -e "  URL:              ${C_BOLD}${url}${C_RST}"
+  echo -e "  Страница входа:   ${url}/login"
+  echo -e "  API ready:        http://127.0.0.1:${VBX_API_PORT}/ready"
   echo
-  echo -e "  ${C_BOLD}Admin логин:${C_RST}  ${VBX_ADMIN_USERNAME}"
-  echo -e "  ${C_BOLD}Admin email:${C_RST}  ${VBX_ADMIN_EMAIL}"
-  echo -e "  ${C_BOLD}Admin пароль:${C_RST} ${C_YEL}${VBX_ADMIN_PASSWORD}${C_RST}"
-  echo
-  echo "  PostgreSQL:    ${VBX_POSTGRES_USER} / ${VBX_POSTGRES_DB}  (пароль — в отчёте)"
-  echo "  Redis:         пароль — в отчёте"
-  if [[ -s "${EXTRA_USERS_FILE}" ]]; then
-    echo "  Доп. УЗ:       $(wc -l < "${EXTRA_USERS_FILE}") (пароли заданы вами на этапе 7)"
+  echo -e "  ${C_BOLD}—— Супер-администратор ——${C_RST}"
+  echo -e "  Логин:            ${C_BOLD}${VBX_ADMIN_USERNAME}${C_RST}"
+  echo -e "  Email:            ${VBX_ADMIN_EMAIL}"
+  echo -e "  ФИО:              ${VBX_ADMIN_FULL_NAME}"
+  echo -e "  Пароль:           ${C_YEL}${C_BOLD}${VBX_ADMIN_PASSWORD}${C_RST}"
+  if [[ "${ADMIN_LOGIN_OK}" == "1" ]]; then
+    echo -e "  Проверка входа:   ${C_GRN}OK${C_RST}"
+  else
+    echo -e "  Проверка входа:   ${C_YEL}не подтверждена${C_RST} (см. лог / volumes)"
   fi
   echo
-  echo "  Отчёт:         ${REPORT_FILE}"
-  echo "  Лог:           ${LOG_FILE}"
-  echo "  Env:           ${VBX_INSTALL_DIR}/config/vbx.env"
+  echo -e "  ${C_BOLD}—— Инфраструктура (также в отчёте) ——${C_RST}"
+  echo "  PostgreSQL:       ${VBX_POSTGRES_USER} / ${VBX_POSTGRES_DB}"
+  echo "  PG password:      ${VBX_POSTGRES_PASSWORD}"
+  echo "  Redis password:   ${VBX_REDIS_PASSWORD}"
+  if [[ -s "${EXTRA_USERS_FILE}" ]]; then
+    echo "  Доп. УЗ:          $(grep -c . "${EXTRA_USERS_FILE}" || echo 0) (пароли заданы вами на этапе 8)"
+  fi
+  echo
+  echo "  Отчёт (600):      ${REPORT_FILE}"
+  echo "  Лог:              ${LOG_FILE}"
+  echo "  Env (600):        ${VBX_INSTALL_DIR}/config/vbx.env"
   echo "================================================================================"
   echo -e "${C_YEL}Сохраните пароль Admin сейчас — он больше нигде не печатается.${C_RST}"
+  echo -e "${C_YEL}Рекомендуется сменить его после первого входа (Профиль).${C_RST}"
   echo
 }
 
@@ -848,16 +1225,22 @@ main() {
 
   if [[ -n "${CONF_FILE}" ]]; then
     load_conf_file
-    # Даже из conf: если пароль Admin пустой или дефолтный — генерируем
-    if [[ -z "${VBX_ADMIN_PASSWORD}" || "${VBX_ADMIN_PASSWORD}" == "ChangeMe_StrongPass_123!" ]]; then
-      VBX_ADMIN_PASSWORD="$(rand_admin_password)"
-      warn "Пароль Admin из conf пуст/дефолтный — сгенерирован новый"
-    fi
+    # Пароль Admin ВСЕГДА генерируем заново (политика установщика)
+    VBX_ADMIN_PASSWORD=""
     [[ -n "${VBX_HOST}" ]] || VBX_HOST="$(hostname -I 2>/dev/null | awk '{print $1}')"
     [[ -n "${VBX_HOST}" ]] || VBX_HOST="127.0.0.1"
     [[ -n "${VBX_ADMIN_EMAIL}" ]] || VBX_ADMIN_EMAIL="${VBX_ADMIN_USERNAME}@${VBX_HOST}"
     [[ -n "${VBX_ADMIN_FULL_NAME}" ]] || VBX_ADMIN_FULL_NAME="Главный Администратор"
     [[ -n "${VBX_ADMIN_ORG}" ]] || VBX_ADMIN_ORG="Организация"
+    valid_ident "${VBX_POSTGRES_DB}" || die "VBX_POSTGRES_DB некорректен"
+    valid_ident "${VBX_POSTGRES_USER}" || die "VBX_POSTGRES_USER некорректен"
+    valid_ident "${VBX_ADMIN_USERNAME}" || die "VBX_ADMIN_USERNAME некорректен"
+    valid_email "${VBX_ADMIN_EMAIL}" || die "VBX_ADMIN_EMAIL некорректен"
+    valid_port "${VBX_HTTP_PORT}" || die "VBX_HTTP_PORT некорректен"
+    valid_port "${VBX_API_PORT}" || die "VBX_API_PORT некорректен"
+    if [[ "${VBX_PURGE_EXISTING}" == "yes" ]]; then
+      FRESH_VOLUMES=1
+    fi
   else
     wizard
   fi
@@ -872,6 +1255,8 @@ main() {
 
   stage "Размещение приложения и секретов"
   prepare_source
+  maybe_purge_volumes
+  generate_admin_password
   write_env
   write_used_conf
   configure_firewall
@@ -880,7 +1265,9 @@ main() {
   start_stack
   wait_healthy
 
-  stage "Дополнительные учётные записи"
+  stage "Проверка Admin и дополнительные УЗ"
+  sync_admin_password
+  verify_admin_login
   create_extra_users
 
   stage "Финальный отчёт"

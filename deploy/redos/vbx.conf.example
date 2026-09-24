@@ -10,8 +10,15 @@
 #   nano /root/vbx.conf
 #   sudo bash deploy/redos/install.sh /root/vbx.conf
 #
-# Пустые VBX_SECRET_KEY / VBX_*_PASSWORD / пароль Admin (или дефолт ChangeMe…)
-# установщик СГЕНЕРИРУЕТ сам и запишет в VBX_INSTALL_INFO.txt.
+# Пустые VBX_SECRET_KEY / VBX_POSTGRES_PASSWORD / VBX_REDIS_PASSWORD
+# установщик СГЕНЕРИРУЕТ сам.
+# Пароль Admin ВСЕГДА генерируется заново (значение ниже игнорируется)
+# и пишется в VBX_INSTALL_INFO.txt + консоль в конце.
+#
+# Доп. УЗ (опционально):
+#   VBX_EXTRA_USERS_FILE="/root/vbx-extra-users.tsv"
+#   # username|email|full_name|password|role
+#   # analyst|analyst@example.local|Иван Аналитик|StrongPass_here|analyst
 # =============================================================================
 
 # --- Каталог ---
@@ -35,7 +42,7 @@ VBX_POSTGRES_PASSWORD=""
 # --- Redis ---
 VBX_REDIS_PASSWORD=""
 
-# --- Admin (пароль лучше оставить пустым — скрипт сгенерирует) ---
+# --- Admin (пароль из conf ИГНОРИРУЕТСЯ — всегда генерируется) ---
 VBX_ADMIN_USERNAME="admin"
 VBX_ADMIN_EMAIL="admin@example.local"
 VBX_ADMIN_PASSWORD=""
@@ -59,6 +66,9 @@ VBX_SOURCE_MODE="local"
 VBX_REPO_PATH=""
 VBX_ARCHIVE_PATH=""
 
+# --- Доп. УЗ (tsv) ---
+# VBX_EXTRA_USERS_FILE=""
+
 # --- Поведение ---
 VBX_CONFIGURE_FIREWALL="yes"
 VBX_ADD_USER_TO_DOCKER="yes"
@@ -66,3 +76,5 @@ VBX_DNF_UPDATE="no"
 VBX_DOCKER_SMOKE_TEST="yes"
 VBX_MAILHOG="yes"
 VBX_INSTALL_REPORT="VBX_INSTALL_INFO.txt"
+# yes = удалить volumes перед up; no = сохранить; в мастере по умолчанию ask
+VBX_PURGE_EXISTING="yes"
