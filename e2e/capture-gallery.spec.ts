@@ -24,6 +24,8 @@ async function loginViaApi(page: Page) {
       if (!r.ok || !d.access_token) return false;
       localStorage.setItem("vbx_access_token", d.access_token);
       if (d.refresh_token) localStorage.setItem("vbx_refresh_token", d.refresh_token);
+      // Галерея: стартуем с развёрнутого сайдбара
+      localStorage.setItem("vbx.sidebar.collapsed", "0");
       return true;
     },
     { user: USER, pass: PASS },

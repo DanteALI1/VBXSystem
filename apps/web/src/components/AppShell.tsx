@@ -76,17 +76,18 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   return (
     <div
       className={`min-h-screen bg-bg lg:grid ${
-        collapsed ? "lg:grid-cols-[72px_1fr]" : "lg:grid-cols-[248px_1fr]"
+        collapsed ? "lg:grid-cols-[72px_1fr]" : "lg:grid-cols-[240px_1fr]"
       } ${ready ? "transition-[grid-template-columns] duration-300 ease-out" : ""}`}
     >
+      {/* Один фон с контентом — без border/shadow/другого surface, чтобы не было «шва» */}
       <aside
-        className={`sticky top-0 z-20 flex flex-col bg-surface/95 backdrop-blur lg:h-screen ${
+        className={`sticky top-0 z-20 flex flex-col bg-bg lg:h-screen ${
           collapsed ? "lg:items-center" : ""
         }`}
       >
         <div
           className={`flex w-full items-center ${
-            collapsed ? "justify-center px-2 py-4" : "gap-3 px-5 py-5"
+            collapsed ? "justify-center px-2 py-5" : "gap-3 px-4 py-5"
           }`}
         >
           <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-accent to-accent2 text-white shadow-soft">
@@ -103,7 +104,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         </div>
 
         <nav
-          className={`flex-1 space-y-0.5 pb-4 ${collapsed ? "w-full px-2" : "px-3"}`}
+          className={`flex-1 space-y-1 pb-4 ${collapsed ? "w-full px-2" : "px-3"}`}
           aria-label="Основное меню"
         >
           {NAV.map((item) => {
@@ -125,8 +126,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                   collapsed ? "justify-center px-0 py-2.5" : "gap-3 px-3 py-2.5"
                 } ${
                   active
-                    ? "bg-accent/15 text-accent2"
-                    : "text-muted hover:bg-surface2 hover:text-text"
+                    ? "bg-accent/12 text-accent2"
+                    : "text-muted hover:bg-white/[0.04] hover:text-text"
                 }`}
               >
                 <Icon
@@ -139,14 +140,14 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           })}
         </nav>
 
-        <div className={`mt-auto pb-4 ${collapsed ? "px-2" : "px-3"}`}>
+        <div className={`mt-auto pb-5 ${collapsed ? "px-2" : "px-3"}`}>
           <button
             type="button"
             onClick={toggleSidebar}
             title={collapsed ? "Развернуть меню" : "Свернуть меню"}
             aria-label={collapsed ? "Развернуть меню" : "Свернуть меню"}
             aria-expanded={!collapsed}
-            className={`hidden w-full items-center rounded-xl py-2.5 text-sm text-muted transition hover:bg-surface2 hover:text-text lg:flex ${
+            className={`hidden w-full items-center rounded-xl py-2.5 text-sm text-muted transition hover:bg-white/[0.04] hover:text-text lg:flex ${
               collapsed ? "justify-center px-0" : "gap-3 px-3"
             }`}
           >
@@ -156,15 +157,15 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         </div>
       </aside>
 
-      <div className="flex min-w-0 flex-col">
-        <header className="sticky top-0 z-10 flex items-center justify-between gap-4 bg-bg/80 px-5 py-3 backdrop-blur md:px-8">
+      <div className="flex min-w-0 flex-col bg-bg">
+        <header className="sticky top-0 z-10 flex items-center justify-between gap-4 bg-bg/90 px-5 py-3 backdrop-blur md:px-8">
           <div className="flex min-w-0 items-center gap-3">
             <button
               type="button"
               onClick={toggleSidebar}
               title={collapsed ? "Развернуть меню" : "Свернуть меню"}
               aria-label={collapsed ? "Развернуть меню" : "Свернуть меню"}
-              className="inline-flex h-9 w-9 items-center justify-center rounded-xl bg-surface2 text-muted transition hover:text-text lg:hidden"
+              className="inline-flex h-9 w-9 items-center justify-center rounded-xl text-muted transition hover:bg-white/[0.04] hover:text-text lg:hidden"
             >
               {collapsed ? <PanelLeftOpen size={16} /> : <PanelLeftClose size={16} />}
             </button>
@@ -184,7 +185,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           <button
             type="button"
             onClick={logout}
-            className="inline-flex items-center gap-1.5 rounded-lg bg-surface2 px-3 py-1.5 text-sm text-muted transition hover:text-text"
+            className="inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm text-muted transition hover:bg-white/[0.04] hover:text-text"
           >
             <LogOut size={14} />
             Выйти
