@@ -34,7 +34,18 @@ curl -s http://localhost:8000/ready
 bash deploy/redos/validate-install.sh
 ```
 
+## Видео-превью UI
+
+Короткий тур (~30 с): login → dashboard → search → CVE → local ID → branding → system → database → tickets → XDB.
+
+![VBXSystem UI preview](docs/demo/ui-preview.gif)
+
+MP4 (полное качество): [docs/demo/ui-preview.mp4](docs/demo/ui-preview.mp4) · постер: [docs/demo/ui-preview-poster.png](docs/demo/ui-preview-poster.png)
+
+> На GitHub GIF встраивается прямо в README; MP4 открывается по ссылке (или через raw URL после merge).
 ## Скриншоты UI
+
+Актуальная галерея (переснята после W9). Старые файлы удалены.
 
 ### Auth
 
@@ -48,11 +59,13 @@ bash deploy/redos/validate-install.sh
 |-----------|--------|
 | ![Dashboard](docs/screenshots/03_dashboard.png) | ![Search](docs/screenshots/04_search.png) |
 
-| CVE detail + Scoring | BDU detail |
-|----------------------|------------|
+| CVE detail | BDU detail |
+|------------|------------|
 | ![CVE](docs/screenshots/05_cve_detail.png) | ![BDU](docs/screenshots/06_bdu_detail.png) |
 
-![Vulnerability Scoring Details](docs/screenshots/05b_cve_scoring_details.png)
+| Vulnerability Scoring Details | CVE · вкладка БДУ |
+|-------------------------------|-------------------|
+| ![Scoring](docs/screenshots/05b_cve_scoring_details.png) | ![BDU tab](docs/screenshots/05c_cve_bdu_tab.png) |
 
 | CVEQL | EPSS |
 |-------|------|
@@ -61,6 +74,10 @@ bash deploy/redos/validate-install.sh
 | Exploits (XDB) | Заявки |
 |----------------|--------|
 | ![XDB](docs/screenshots/09_xdb.png) | ![Tickets](docs/screenshots/10_tickets.png) |
+
+| Локальная запись |
+|------------------|
+| ![Local](docs/screenshots/20_local_detail.png) |
 
 ### Настройки
 
@@ -72,22 +89,20 @@ bash deploy/redos/validate-install.sh
 |-------------|--------------|
 | ![Notifications](docs/screenshots/13_settings_notifications.png) | ![Security](docs/screenshots/14_settings_security.png) |
 
-| База данных (NVD/BDU) | Интеграции |
-|-----------------------|------------|
-| ![Database](docs/screenshots/15_settings_database.png) | ![Integrations](docs/screenshots/16_settings_integrations.png) |
+| Брендинг | База данных (NVD/BDU URL) |
+|----------|--------------------------|
+| ![Branding](docs/screenshots/18_settings_branding.png) | ![Database](docs/screenshots/15_settings_database.png) |
 
-![API keys](docs/screenshots/17_settings_api_keys.png)
+| Система | Интеграции |
+|---------|------------|
+| ![System](docs/screenshots/19_settings_system.png) | ![Integrations](docs/screenshots/16_settings_integrations.png) |
 
-| Брендинг | Система |
-|----------|---------|
-| ![Branding](docs/screenshots/18_settings_branding.png) | ![System](docs/screenshots/19_settings_system.png) |
+| API keys |
+|----------|
+| ![API keys](docs/screenshots/17_settings_api_keys.png) |
 
-| Локальная запись | CVE NVD/БДУ tabs |
-|------------------|------------------|
-| ![Local](docs/screenshots/20_local_detail.png) | *(см. CVE detail)* |
-
-Карточка CVE включает блок **Vulnerability Scoring Details** (как на cvefeed): score/severity, remotely exploitable, вектор, radar метрик и разбор AV/AC/PR/UI/S/C/I/A.  
-W9 добавил login split-layout, брендинг, метрики хоста, локальные ID `VBX-YYYY-NNNN`, sync БДУ по URL.
+Карточка CVE: **Vulnerability Scoring Details** + вкладки описания **NVD | БДУ**.  
+W9: login split-layout, брендинг, метрики хоста, локальные ID `VBX-YYYY-NNNN`, sync БДУ по URL.
 
 ## Установка на РЕД ОС (minimal)
 
@@ -116,7 +131,8 @@ apps/web           Next.js (App Router), UI в стилистике cvefeed
 deploy/redos       установщик РЕД ОС + validate-install.sh
 scripts/           backup / restore
 docs/              спецификация, волны, ops
-docs/screenshots/  галерея UI
+docs/screenshots/  галерея UI (актуальные PNG)
+docs/demo/         видео-превью (GIF + MP4)
 e2e/               Playwright
 ```
 
