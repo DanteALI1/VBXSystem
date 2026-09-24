@@ -106,11 +106,22 @@ W9: login split-layout, брендинг, метрики хоста, локал�
 
 ## Установка на РЕД ОС (minimal)
 
+Интерактивный мастер (спрашивает креды по этапам, пароль Admin генерирует сам):
+
+```bash
+sudo bash deploy/redos/install.sh
+```
+
+Или из conf-файла:
+
 ```bash
 cp deploy/redos/vbx.conf.example /root/vbx.conf
 sudo bash deploy/redos/install.sh /root/vbx.conf
 sudo less /opt/vbx/VBX_INSTALL_INFO.txt
 ```
+
+В конце установщик печатает URL, логин Admin и **сгенерированный пароль**, плюс пишет отчёт mode 600.  
+Подробности: [docs/ops/INSTALL_REDOS.md](docs/ops/INSTALL_REDOS.md).
 
 Документация оператора:
 

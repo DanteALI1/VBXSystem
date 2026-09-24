@@ -1,74 +1,92 @@
 # Установка VBXSystem на РЕД ОС (минимальная конфигурация)
 
-Целевой стенд: **РЕД ОС 7.3+**, профиль **Server minimal** (на сервере изначально может не быть ничего, кроме базовой ОС и доступа к репозиториям).
+Целевой стенд: **РЕД ОС 7.3+**, профиль **Server minimal**.
 
 Официальная установка Docker на РЕД ОС:  
 `dnf install docker-ce docker-ce-cli` → `systemctl enable docker --now`  
-(база знаний Red Soft / инструкции R7).
+(база знаний Red Soft / инструкции R7). Установщик сделает это сам.
 
 ---
 
-## 1. Что делает установщик
+## 1. Два режима
 
-Скрипт `deploy/redos/install.sh` выполняет **полный цикл «от и до»**:
+### A. Интерактивный мастер (рекомендуется)
 
-1. Проверяет root и наличие `dnf`
-2. Ставит базовые пакеты минималки (`curl`, `openssl`, `firewalld`, `chrony`, …)
-3. Ставит **Docker CE** + **docker compose** (plugin или binary fallback)
-4. (Опционально) smoke-test `hello-world`
-5. Копирует код в `/opt/vbx/app` (или путь из conf)
-6. Генерирует секреты и `.env` из ваших данных
-7. Открывает порты в **firewalld**
-8. Поднимает `docker compose up -d --build`
-9. Ждёт HTTP-готовности
-10. Пишет отчёт **`VBX_INSTALL_INFO.txt`** (пароли, URL, команды)
+```bash
+cd /path/to/VBXSystem   # или /opt/vbx-src после git clone
+sudo bash deploy/redos/install.sh
+```
+
+Скрипт **по этапам** спрашивает:
+
+| Этап | Что спрашивает |
+|------|----------------|
+| 0 | Подтверждение старта |
+| 1 | IP/DNS, http/https, порты |
+| 2 | Каталог установки, источник кода |
+| 3 | **PostgreSQL**: имя БД, роль, пароль (Enter = сгенерировать) |
+| 4 | **Redis**: пароль (Enter = сгенерировать) |
+| 5 | Организация, timezone |
+| 6 | **Admin**: логин, email, ФИО, должность, телефон — **пароль НЕ спрашивается** |
+| 7 | Опционально доп. УЗ: логин, email, ФИО, роль, **пароль вручную** |
+| 8 | NVD API key (можно позже в UI) |
+| 9 | firewalld / docker group / hello-world / dnf update / MailHog |
+
+В конце:
+
+- генерируется и показывается **пароль Admin**;
+- пишется отчёт `/opt/vbx/VBX_INSTALL_INFO.txt` (mode **600**) со всеми секретами;
+- доп. УЗ создаются в БД после поднятия API.
+
+### B. Файл конфигурации (автоматизация / CI)
+
+```bash
+sudo cp deploy/redos/vbx.conf.example /root/vbx.conf
+sudo chmod 600 /root/vbx.conf
+sudo nano /root/vbx.conf
+sudo bash deploy/redos/install.sh /root/vbx.conf
+```
+
+Пустые `VBX_POSTGRES_PASSWORD` / `VBX_REDIS_PASSWORD` / `VBX_SECRET_KEY` и пустой/дефолтный `VBX_ADMIN_PASSWORD` — **генерируются**.
+
+Без TTY (pipe): автоматически `VBX_ASSUME_YES=1`.
+
+```bash
+VBX_ASSUME_YES=1 sudo bash deploy/redos/install.sh
+```
+
+---
+
+## 2. Что делает установщик
+
+1. Root + `dnf`
+2. Базовые пакеты minimal (`curl`, `openssl`, `firewalld`, `chrony`, `rsync`, …)
+3. Docker CE + compose (+ `scripts/fix-docker-bridge.sh` при наличии)
+4. Копирует код в `/opt/vbx/app`
+5. Пишет `config/vbx.env` и `.env` (mode 600)
+6. firewalld (порты web/api)
+7. `docker compose up -d --build`
+8. Ждёт `/ready` + `/login`
+9. Создаёт доп. УЗ (если задали)
+10. Отчёт `VBX_INSTALL_INFO.txt` + сводка в консоль
 
 Стек: Postgres 16, Redis 7, FastAPI (`api` + `worker`), Next.js (`web`), опционально MailHog.
 
 ---
 
-## 2. Подготовка
-
-```bash
-sudo mkdir -p /opt/vbx-src
-sudo git clone <URL_РЕПОЗИТОРИЯ> /opt/vbx-src
-# или распакуйте release-архив
-
-cd /opt/vbx-src
-sudo cp deploy/redos/vbx.conf.example /root/vbx.conf
-sudo chmod 600 /root/vbx.conf
-sudo nano /root/vbx.conf
-```
-
-| Параметр | Пример |
-|----------|--------|
-| `VBX_HOST` | IP или DNS сервера |
-| `VBX_ADMIN_PASSWORD` | сильный пароль |
-| `VBX_ADMIN_EMAIL` | корпоративная почта |
-| `VBX_ADMIN_ORG` | организация |
-| `VBX_NVD_API_KEY` | опционально (можно в UI позже) |
-
-Пустые `VBX_SECRET_KEY` / `VBX_POSTGRES_PASSWORD` / `VBX_REDIS_PASSWORD` скрипт **сгенерирует сам**.
-
----
-
-## 3. Запуск установки
-
-```bash
-sudo bash deploy/redos/install.sh /root/vbx.conf
-```
-
-В конце:
-
-- URL системы
-- путь к отчёту (по умолчанию `/opt/vbx/VBX_INSTALL_INFO.txt`)
-- путь к логу `/opt/vbx/logs/install-*.log`
+## 3. После установки
 
 ```bash
 sudo less /opt/vbx/VBX_INSTALL_INFO.txt
+cd /opt/vbx/app
+docker compose --env-file .env ps
+curl -fsS http://127.0.0.1:8000/health
+curl -fsS http://127.0.0.1/login
+bash deploy/redos/validate-install.sh
 ```
 
-Файл отчёта и `config/vbx.env` создаются с правами **600**.
+Бэкапы: [BACKUP.md](BACKUP.md). Обновление: [UPGRADE.md](UPGRADE.md).  
+Безопасность: [SECURITY_CHECKLIST.md](SECURITY_CHECKLIST.md). Пользователь: [USER_GUIDE_RU.md](USER_GUIDE_RU.md).
 
 ---
 
@@ -77,32 +95,15 @@ sudo less /opt/vbx/VBX_INSTALL_INFO.txt
 | Ресурс | Минимум | Рекомендуется |
 |--------|---------|----------------|
 | CPU | 2 vCPU | 4+ |
-| RAM | 4 GB | 8–16 GB (полное зеркало NVD) |
+| RAM | 4 GB | 8–16 GB |
 | Диск | 40 GB | 100+ GB SSD |
-| Сеть | dnf-репы РЕД ОС; Docker Hub или зеркало |
-
-Air-gapped: заранее `docker load` образов `postgres:16-alpine`, `redis:7-alpine` и собранных api/web.
+| Сеть | dnf-репы; Docker Hub или зеркало |
 
 ---
 
-## 5. После установки
+## 5. HTTPS
 
-```bash
-cd /opt/vbx/app
-docker compose --env-file .env ps
-docker compose --env-file .env logs -f --tail=200
-curl -fsS http://127.0.0.1:8000/health
-curl -fsS http://127.0.0.1/login
-```
-
-Бэкапы: [BACKUP.md](BACKUP.md). Обновление: [UPGRADE.md](UPGRADE.md).  
-Безопасность: [SECURITY_CHECKLIST.md](SECURITY_CHECKLIST.md). Пользователь: [USER_GUIDE_RU.md](USER_GUIDE_RU.md).
-
----
-
-## 6. HTTPS
-
-В `vbx.conf`:
+В мастере выберите `https` и укажите пути к сертификатам, либо в conf:
 
 ```bash
 VBX_SCHEME="https"
@@ -110,9 +111,7 @@ VBX_TLS_CERT_PATH="/path/to/fullchain.pem"
 VBX_TLS_KEY_PATH="/path/to/privkey.pem"
 ```
 
-Рекомендуется TLS termination на внешнем nginx/HAProxy перед портом web; порт API `8000` не публиковать наружу.
-
-Prod-настройки в `.env`:
+Рекомендуется TLS на внешнем reverse-proxy; порт API не публиковать наружу.
 
 ```bash
 VBX_CORS_ORIGINS=https://vbx.example.local
@@ -121,21 +120,25 @@ VBX_TRUSTED_HOSTS=vbx.example.local,localhost
 
 ---
 
-## 7. Валидация install.sh (W8)
-
-Чистая РЕД ОС VM в этой среде недоступна. Проверено в CI/dev-агенте:
-
-| Проверка | Результат |
-|----------|-----------|
-| `bash -n deploy/redos/install.sh` | синтаксис OK |
-| `docker compose` стек (тот же compose, что ставит install) | healthy: api/web/postgres/redis/worker |
-| Контракт `.env` / `VBX_INSTALL_INFO.txt` поля | соответствуют `write_report` в install.sh |
-| E2E Playwright smoke | login → search → CVE → ticket → database settings |
-
-На чистой РЕД ОС minimal оператор повторяет §2–§3 и сверяет отчёт с таблицей выше.
-
-Скрипт самопроверки (на уже установленном хосте):
+## 6. Валидация
 
 ```bash
+bash -n deploy/redos/install.sh
 bash deploy/redos/validate-install.sh
 ```
+
+| Проверка | Ожидание |
+|----------|----------|
+| Синтаксис `install.sh` | OK |
+| Compose healthy | api/web/postgres/redis/worker |
+| Отчёт | содержит Admin логин/пароль, DSN БД |
+| E2E smoke | login → search → CVE |
+
+---
+
+## 7. Безопасность паролей
+
+1. Пароль **Admin** показывает установщик один раз в консоли + в отчёте `600`.
+2. Пароли доп. УЗ задаёте вы на этапе 7 — в отчёт они **не** дублируются (только логин/роль).
+3. Смените пароль Admin после первого входа.
+4. Не коммитьте `vbx.env` / `VBX_INSTALL_INFO.txt`.

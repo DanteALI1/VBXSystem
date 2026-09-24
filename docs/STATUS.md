@@ -17,6 +17,12 @@
 
 Last updated: 2026-09-24
 
+## Install UX (interactive)
+- `deploy/redos/install.sh` — мастер по этапам: сеть → каталоги → PostgreSQL → Redis → org → Admin (пароль генерируется) → доп. УЗ → NVD → firewall
+- Conf-режим и `VBX_ASSUME_YES=1` сохранены
+- Compose: `VBX_POSTGRES_USER` / `VBX_POSTGRES_DB` параметризованы
+- Docs: `INSTALL_REDOS.md`, README, `vbx.conf.example`, validate-install checks report sections
+
 ## W9 acceptance (VULNEX enrichment)
 - Docs: `ENRICHMENT_FROM_VULNEX.md`, agents W9–W11, AGENT_LAUNCH prompts
 - Login: two-column brand panel + form; public `GET /branding`

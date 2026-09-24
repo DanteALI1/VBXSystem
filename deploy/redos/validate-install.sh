@@ -48,10 +48,20 @@ fi
 
 if [[ -f /opt/vbx/VBX_INSTALL_INFO.txt ]]; then
   if [[ -s /opt/vbx/VBX_INSTALL_INFO.txt ]]; then ok "VBX_INSTALL_INFO.txt non-empty"; else fail "VBX_INSTALL_INFO.txt non-empty"; fi
-  if grep -qE 'супер-администратора|Логин:|Admin' /opt/vbx/VBX_INSTALL_INFO.txt; then
+  if grep -qE 'СУПЕР-АДМИНИСТРАТОР|супер-администратора|Логин:' /opt/vbx/VBX_INSTALL_INFO.txt; then
     ok "report mentions admin"
   else
     fail "report mentions admin"
+  fi
+  if grep -qE 'Пароль:[[:space:]]+\S+' /opt/vbx/VBX_INSTALL_INFO.txt; then
+    ok "report has admin password field"
+  else
+    fail "report has admin password field"
+  fi
+  if grep -qE 'PostgreSQL \(Docker\)|DB password:' /opt/vbx/VBX_INSTALL_INFO.txt; then
+    ok "report has postgres credentials section"
+  else
+    fail "report has postgres credentials section"
   fi
 else
   echo "SKIP VBX_INSTALL_INFO.txt (нет /opt/vbx — не РЕД ОС install)"
