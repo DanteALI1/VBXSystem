@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
+import { useEffect, useState } from "react";
 import {
   LayoutDashboard,
   Search,
@@ -12,6 +13,8 @@ import {
   Settings,
   Shield,
   LogOut,
+  PanelLeftClose,
+  PanelLeftOpen,
 } from "lucide-react";
 import { clearTokens } from "@/lib/api";
 import { useAuth } from "@/lib/useAuth";
@@ -26,10 +29,36 @@ const NAV = [
   { href: "/settings", label: "Настройки", icon: Settings },
 ];
 
+const STORAGE_KEY = "vbx.sidebar.collapsed";
+
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
   const { user, loading } = useAuth();
+  const [collapsed, setCollapsed] = useState(false);
+  const [ready, setReady] = useState(false);
+
+  useEffect(() => {
+    try {
+      const stored = localStorage.getItem(STORAGE_KEY);
+      if (stored === "1") setCollapsed(true);
+    } catch {
+      /* ignore */
+    }
+    setReady(true);
+  }, []);
+
+  function toggleSidebar() {
+    setCollapsed((prev) => {
+      const next = !prev;
+      try {
+        localStorage.setItem(STORAGE_KEY, next ? "1" : "0");
+      } catch {
+        /* ignore */
+      }
+      return next;
+    });
+  }
 
   function logout() {
     clearTokens();
@@ -45,20 +74,38 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   }
 
   return (
-    <div className="min-h-screen bg-bg lg:grid lg:grid-cols-[248px_1fr]">
-      <aside className="sticky top-0 z-20 border-b border-border/80 bg-surface/95 backdrop-blur lg:h-screen lg:border-b-0 lg:border-r">
-        <div className="flex items-center gap-3 px-5 py-5">
-          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-accent to-accent2 text-white shadow-soft">
+    <div
+      className={`min-h-screen bg-bg lg:grid ${
+        collapsed ? "lg:grid-cols-[72px_1fr]" : "lg:grid-cols-[248px_1fr]"
+      } ${ready ? "transition-[grid-template-columns] duration-300 ease-out" : ""}`}
+    >
+      <aside
+        className={`sticky top-0 z-20 flex flex-col bg-surface/95 backdrop-blur lg:h-screen ${
+          collapsed ? "lg:items-center" : ""
+        }`}
+      >
+        <div
+          className={`flex w-full items-center ${
+            collapsed ? "justify-center px-2 py-4" : "gap-3 px-5 py-5"
+          }`}
+        >
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-accent to-accent2 text-white shadow-soft">
             <Shield size={18} />
           </div>
-          <div className="min-w-0">
-            <div className="font-display text-lg font-semibold tracking-tight text-text">VBX</div>
-            <div className="truncate text-[11px] uppercase tracking-wider text-muted">
-              Vulnerability Intelligence
+          {!collapsed ? (
+            <div className="min-w-0 overflow-hidden">
+              <div className="font-display text-lg font-semibold tracking-tight text-text">VBX</div>
+              <div className="truncate text-[11px] uppercase tracking-wider text-muted">
+                Vulnerability Intelligence
+              </div>
             </div>
-          </div>
+          ) : null}
         </div>
-        <nav className="space-y-0.5 px-3 pb-6" aria-label="Основное меню">
+
+        <nav
+          className={`flex-1 space-y-0.5 pb-4 ${collapsed ? "w-full px-2" : "px-3"}`}
+          aria-label="Основное меню"
+        >
           {NAV.map((item) => {
             const active =
               pathname === item.href ||
@@ -72,41 +119,72 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               <Link
                 key={item.href}
                 href={item.href}
-                className={`group flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition ${
+                title={collapsed ? item.label : undefined}
+                aria-label={item.label}
+                className={`group flex items-center rounded-xl text-sm font-medium transition ${
+                  collapsed ? "justify-center px-0 py-2.5" : "gap-3 px-3 py-2.5"
+                } ${
                   active
-                    ? "bg-accent/15 text-accent2 shadow-[inset_3px_0_0_0_var(--vbx-accent)]"
+                    ? "bg-accent/15 text-accent2"
                     : "text-muted hover:bg-surface2 hover:text-text"
                 }`}
               >
                 <Icon
                   size={16}
-                  className={active ? "text-accent2" : "text-muted group-hover:text-text"}
+                  className={`shrink-0 ${active ? "text-accent2" : "text-muted group-hover:text-text"}`}
                 />
-                {item.label}
+                {!collapsed ? <span className="truncate">{item.label}</span> : null}
               </Link>
             );
           })}
         </nav>
+
+        <div className={`mt-auto pb-4 ${collapsed ? "px-2" : "px-3"}`}>
+          <button
+            type="button"
+            onClick={toggleSidebar}
+            title={collapsed ? "Развернуть меню" : "Свернуть меню"}
+            aria-label={collapsed ? "Развернуть меню" : "Свернуть меню"}
+            aria-expanded={!collapsed}
+            className={`hidden w-full items-center rounded-xl py-2.5 text-sm text-muted transition hover:bg-surface2 hover:text-text lg:flex ${
+              collapsed ? "justify-center px-0" : "gap-3 px-3"
+            }`}
+          >
+            {collapsed ? <PanelLeftOpen size={16} /> : <PanelLeftClose size={16} />}
+            {!collapsed ? <span>Свернуть</span> : null}
+          </button>
+        </div>
       </aside>
 
       <div className="flex min-w-0 flex-col">
-        <header className="sticky top-0 z-10 flex items-center justify-between gap-4 border-b border-border/80 bg-bg/80 px-5 py-3 backdrop-blur md:px-8">
-          <div className="min-w-0 text-sm text-muted">
-            {user ? (
-              <span className="truncate">
-                <span className="text-text">{user.full_name || user.username}</span>
-                {user.is_super_admin ? (
-                  <span className="hidden sm:inline"> · Главный администратор</span>
-                ) : null}
-              </span>
-            ) : (
-              "Внутренняя система управления уязвимостями"
-            )}
+        <header className="sticky top-0 z-10 flex items-center justify-between gap-4 bg-bg/80 px-5 py-3 backdrop-blur md:px-8">
+          <div className="flex min-w-0 items-center gap-3">
+            <button
+              type="button"
+              onClick={toggleSidebar}
+              title={collapsed ? "Развернуть меню" : "Свернуть меню"}
+              aria-label={collapsed ? "Развернуть меню" : "Свернуть меню"}
+              className="inline-flex h-9 w-9 items-center justify-center rounded-xl bg-surface2 text-muted transition hover:text-text lg:hidden"
+            >
+              {collapsed ? <PanelLeftOpen size={16} /> : <PanelLeftClose size={16} />}
+            </button>
+            <div className="min-w-0 text-sm text-muted">
+              {user ? (
+                <span className="truncate">
+                  <span className="text-text">{user.full_name || user.username}</span>
+                  {user.is_super_admin ? (
+                    <span className="hidden sm:inline"> · Главный администратор</span>
+                  ) : null}
+                </span>
+              ) : (
+                "Внутренняя система управления уязвимостями"
+              )}
+            </div>
           </div>
           <button
             type="button"
             onClick={logout}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-surface2 px-3 py-1.5 text-sm text-muted transition hover:border-accent/40 hover:text-text"
+            className="inline-flex items-center gap-1.5 rounded-lg bg-surface2 px-3 py-1.5 text-sm text-muted transition hover:text-text"
           >
             <LogOut size={14} />
             Выйти
