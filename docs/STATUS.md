@@ -7,39 +7,23 @@
 | W2 | Vuln Core (NVD/BDU/KEV) | DONE | Sync jobs + Settings/Database UI |
 | W3 | Search & Detail | DONE | Search + CVE/BDU cards, KEV highlight |
 | W4 | Dashboard / EPSS / CVEQL | DONE | KPI dashboard, EPSS, CVEQL subset |
-| W5 | XDB Exploits | **DONE** | Metadata catalog + CSV/JSON import |
-| W6 | Settings suite | pending | Depends on W1 (+ W2 for Database UI) |
+| W5 | XDB Exploits | DONE | Metadata catalog + CSV/JSON import |
+| W6 | Settings suite | **DONE** | Notifications, Security, Integrations, API keys |
 | W7 | Tickets | pending | Depends on W1, W3 |
 | W8 | Hardening & E2E | pending | Прогон install.sh на чистой РЕД ОС |
 
 Last updated: 2026-09-24
 
+## W6 acceptance
+- `/settings/notifications` — per-user prefs
+- `/settings/security` — force 2FA, device alerts, mTLS CA/docs, audit viewer
+- `/settings/integrations` — SMTP (MailHog), LDAP mock sync→groups, SSO config
+- `/settings/api-keys` — create/revoke; Bearer/`X-API-Key` auth for `vuln:read`
+- Secrets encrypted at rest; audit on admin actions
+- Pytest `tests/test_settings_suite.py`; MailHog service in compose
+
 ## W5 acceptance
 - Model `exploits` + alembic `0004_xdb`
-- `GET /xdb` — search/filters (CVE, author, dates), sort, pagination
-- Import: JSON body, CSV/JSON file, sample dataset (`vuln:sync` RBAC)
-- URL sanitize (http/https only); no exploit payloads stored
-- CVE detail includes `exploits[]`; UI table `/xdb`
+- `GET /xdb` — search/filters, import JSON/CSV/sample
+- CVE detail `exploits[]`; UI `/xdb`
 - Pytest `tests/test_xdb.py`
-
-## W4 acceptance
-- `GET /dashboard` — KPI, activity chart ranges, recent critical/KEV, sync health
-- `GET /epss` + `POST /epss/sync` — top predictions + delta movers (mock sync)
-- `GET /cveql/help`, `POST /cveql/execute` — AST→SQLAlchemy, role rate limit, RU errors
-- Web `/dashboard`, `/epss`, `/cveql`
-- Pytest `tests/test_cveql_dashboard.py` (parser + injection + examples)
-
-## W3 acceptance
-- `GET /search` — mixed CVE + standalone BDU, filters (severity, KEV, has BDU, date), sort, pagination
-- `GET /vuln/{cve_id}` — CVSS, CWE, KEV, EPSS, БДУ panel
-- `GET /bdu/{bdu_id}` — standalone/linked card
-- Web `/search`, `/vuln/[cveId]`, `/bdu/[bduId]` with KEV row accent + accessible badges
-- Pytest `tests/test_search.py`; Playwright smoke `e2e/search.spec.ts`
-
-## W2 acceptance
-- Models: cves, bdu_records, cve_bdu_links, cisa_kev, epss_scores, sync_runs, source_files
-- NVD sync (mock without key / API with key), KEV sync
-- BDU XML upload with merge rules (linked → CVE section, else standalone)
-- `/settings/database` UI (NVD + BDU blocks)
-- Worker `python -m app.worker`
-- Pytest merge rules green

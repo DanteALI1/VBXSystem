@@ -154,6 +154,8 @@ class AdGroupSyncOut(BaseModel):
     status: str
     message: str
     planned: list[dict] = []
+    created: int = 0
+    updated: int = 0
 
 
 class RoleOut(BaseModel):
@@ -384,3 +386,52 @@ class ExploitImportOut(BaseModel):
     updated: int = 0
     skipped: int = 0
     total: int = 0
+
+
+class NotificationPrefsOut(BaseModel):
+    new_vulns: bool = True
+    kev_updates: bool = True
+    nvd_sync: bool = True
+    bdu_import: bool = False
+    ticket_events: bool = True
+    channel_toast: bool = True
+    channel_modal: bool = False
+
+
+class SecuritySettingsOut(BaseModel):
+    force_2fa: bool = False
+    new_device_alerts: bool = True
+    mtls_enabled: bool = False
+    mtls_ca_configured: bool = False
+    mtls_instructions: str = ""
+
+
+class AuditLogOut(BaseModel):
+    id: int
+    actor_user_id: int | None = None
+    action: str
+    resource: str = ""
+    details: str = ""
+    ip_address: str | None = None
+    created_at: datetime | None = None
+
+
+class IntegrationsOut(BaseModel):
+    smtp: dict
+    ldap: dict
+    sso: dict
+
+
+class ApiKeyOut(BaseModel):
+    id: int
+    name: str
+    prefix: str
+    scopes: list[str] = []
+    expires_at: datetime | None = None
+    revoked_at: datetime | None = None
+    last_used_at: datetime | None = None
+    created_at: datetime | None = None
+
+
+class ApiKeyCreatedOut(ApiKeyOut):
+    secret: str

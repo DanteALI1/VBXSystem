@@ -75,16 +75,24 @@ def delete_group(
 @router.post("/ad/sync", response_model=AdGroupSyncOut)
 def sync_ad_groups(
     payload: AdGroupSyncRequest,
-    _: User = Depends(require_super_admin),
+    db: Session = Depends(get_db),
+    admin: User = Depends(require_super_admin),
 ) -> AdGroupSyncOut:
-    # Contract stub for W6 LDAP integration
+    from app.services.auth_helpers import write_audit
+    from app.services.ldap_service import sync_ldap_groups
+
+    result = sync_ldap_groups(db, dry_run=payload.dry_run, ou_filter=payload.ou_filter)
+    write_audit(
+        db,
+        action="groups.ad_sync",
+        actor_user_id=admin.id,
+        resource="ad",
+        details=str(result),
+    )
     return AdGroupSyncOut(
-        status="not_configured",
-        message="Синхронизация AD/LDAP будет доступна в волне интеграций (W6). Контракт API готов.",
-        planned=[
-            {"name": "Domain Users", "external_id": "cn=Domain Users", "source": "ad"},
-            {"name": "VBX Analysts", "external_id": "cn=VBX Analysts", "source": "ad"},
-        ]
-        if payload.dry_run
-        else [],
+        status=result["status"],
+        message=result["message"],
+        planned=result.get("planned") or [],
+        created=result.get("created", 0),
+        updated=result.get("updated", 0),
     )
