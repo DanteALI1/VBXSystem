@@ -1,0 +1,4 @@
+xdb_id,cve_id,date,repo_url,repo_name,author
+XDB-CSV-1,CVE-2024-0001,2024-05-01,https://github.com/example/csv-poc,example/csv-poc,csv-author
+XDB-CSV-2,,2024-05-02,javascript:alert(1),evil/xss,bad-actor
+XDB-CSV-3,CVE-2024-0002,2024-05-03,https://github.com/example/ok-repo,example/ok-repo,ok-author
