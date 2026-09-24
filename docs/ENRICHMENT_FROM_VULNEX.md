@@ -68,12 +68,12 @@
 
 ## 4. Acceptance обогащения (суммарно)
 
-- [ ] Login: двухколоночный layout (visual + form), бренд из settings
-- [ ] Settings → Брендинг (product name, org, login title/text)
-- [ ] Settings → Система (CPU/RAM/SWAP/Disk)
-- [ ] Local vuln IDs `VBX-YYYY-NNNN` + создание + поиск
-- [ ] CVE detail: вкладки описания NVD | БДУ; расширенные поля БДУ
-- [ ] Settings → База данных: URL БДУ + кнопка sync по URL
+- [x] Login: двухколоночный layout (visual + form), бренд из settings
+- [x] Settings → Брендинг (product name, org, login title/text)
+- [x] Settings → Система (CPU/RAM/SWAP/Disk)
+- [x] Local vuln IDs `VBX-YYYY-NNNN` + создание + поиск
+- [x] CVE detail: вкладки описания NVD | БДУ; расширенные поля БДУ
+- [x] Settings → База данных: URL БДУ + кнопка sync по URL
 - [ ] (W10) Wizard первого запуска без license server
 - [ ] (W11) Telegram + SLA заявок
-- [ ] Скриншоты всех затронутых страниц обновлены в README
+- [x] Скриншоты всех затронутых страниц обновлены в README
