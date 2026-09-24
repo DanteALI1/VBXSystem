@@ -590,6 +590,11 @@ docker compose --env-file .env logs -f --tail=200
 docker compose --env-file .env restart
 docker compose --env-file .env down
 
+Бэкап / восстановление:
+  COMPOSE_DIR=${APP_DIR} VBX_BACKUP_DIR=${VBX_INSTALL_DIR}/backups bash ${APP_DIR}/scripts/backup.sh
+  COMPOSE_DIR=${APP_DIR} bash ${APP_DIR}/scripts/restore.sh ${VBX_INSTALL_DIR}/backups/<stamp>
+  bash ${APP_DIR}/deploy/redos/validate-install.sh
+
 Обновление (после появления нового релиза):
   sudo bash ${VBX_INSTALL_DIR}/app/deploy/redos/install.sh ${VBX_INSTALL_DIR}/config/vbx.conf.used
 
@@ -598,6 +603,7 @@ docker compose --env-file .env down
 2) Смените пароль администратора после первого входа.
 3) Настройте HTTPS (VBX_SCHEME=https + сертификаты) для промышленной среды.
 4) Ключ NVD задайте в Настройки → База данных, если не указали при установке.
+5) Не публикуйте порт API 8000 наружу; задайте VBX_TRUSTED_HOSTS / VBX_CORS_ORIGINS.
 
 ================================================================================
 EOF

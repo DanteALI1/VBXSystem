@@ -2,6 +2,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from sqlalchemy.orm import joinedload
 
 from app.api import (
@@ -23,6 +24,7 @@ from app.api import (
     xdb_routes,
 )
 from app.core.config import get_settings
+from app.core.middleware import RequestSizeLimitMiddleware, SecurityHeadersMiddleware
 from app.db import SessionLocal
 from app.models import User
 from app.seed import run_seed
@@ -42,14 +44,20 @@ async def lifespan(_: FastAPI):
 
 def create_app() -> FastAPI:
     settings = get_settings()
-    app = FastAPI(title="VBXSystem API", version="0.6.0", lifespan=lifespan)
+    app = FastAPI(title="VBXSystem API", version="0.8.0", lifespan=lifespan)
+    # Last added = outermost. Order: size limit → trusted host → CORS → security headers.
+    app.add_middleware(SecurityHeadersMiddleware)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.cors_origins_list or ["*"],
         allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
+        allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+        allow_headers=["Authorization", "Content-Type", "X-API-Key", "Accept"],
     )
+    hosts = settings.trusted_hosts_list
+    if hosts:
+        app.add_middleware(TrustedHostMiddleware, allowed_hosts=hosts)
+    app.add_middleware(RequestSizeLimitMiddleware)
     app.include_router(routes.router)
     app.include_router(auth_routes.router)
     app.include_router(profile_routes.router)

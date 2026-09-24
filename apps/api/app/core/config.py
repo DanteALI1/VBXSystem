@@ -21,12 +21,23 @@ class Settings(BaseSettings):
     vbx_nvd_api_key: str = ""
     vbx_cors_origins: str = "http://localhost:3000,http://127.0.0.1:3000"
 
+    # Upload / body limits (BDU XML, XDB CSV/JSON, CA PEM)
+    vbx_max_upload_bytes: int = 64 * 1024 * 1024  # 64 MiB
+    vbx_max_bdu_upload_bytes: int = 64 * 1024 * 1024
+    vbx_max_xdb_upload_bytes: int = 32 * 1024 * 1024
+    vbx_upload_dir: str = "/app/uploads"
+    vbx_trusted_hosts: str = ""  # empty = allow all; comma-separated for prod
+
     access_token_expire_minutes: int = 60
     refresh_token_expire_days: int = 14
 
     @property
     def cors_origins_list(self) -> list[str]:
         return [o.strip() for o in self.vbx_cors_origins.split(",") if o.strip()]
+
+    @property
+    def trusted_hosts_list(self) -> list[str]:
+        return [h.strip() for h in self.vbx_trusted_hosts.split(",") if h.strip()]
 
     @property
     def sync_database_url(self) -> str:
