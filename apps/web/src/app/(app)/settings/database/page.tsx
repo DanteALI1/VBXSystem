@@ -180,7 +180,7 @@ export default function DatabaseSettingsPage() {
   const s = data.stats;
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-5" data-testid="settings-database">
       {/* NVD API Key */}
       <Card>
         <div className="mb-3 flex items-center gap-2">

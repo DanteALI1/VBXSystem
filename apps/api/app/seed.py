@@ -115,3 +115,67 @@ def seed_admin(db: Session) -> User:
 def run_seed(db: Session) -> None:
     seed_rbac(db)
     seed_admin(db)
+    seed_demo_intel_if_empty(db)
+
+
+SAMPLE_BDU_XML = """<?xml version="1.0" encoding="UTF-8"?>
+<vulnerabilities>
+  <vulnerability>
+    <identifier>BDU:2024-00001</identifier>
+    <name>Уязвимость ExampleSoft RCE</name>
+    <description>Тестовая запись БДУ с привязкой к CVE-2024-0001</description>
+    <severity>Критический</severity>
+    <severity_level>4</severity_level>
+    <status>Подтверждена</status>
+    <solution>Обновить ExampleSoft</solution>
+    <vendor>ExampleSoft</vendor>
+    <software>ExampleSoft 1.0</software>
+    <cwe>CWE-94</cwe>
+    <cve>CVE-2024-0001</cve>
+    <identify_date>2024-02-01</identify_date>
+  </vulnerability>
+  <vulnerability>
+    <identifier>BDU:2024-00002</identifier>
+    <name>Локальная уязвимость без CVE</name>
+    <description>Запись БДУ без привязки к CVE — должна стать standalone карточкой</description>
+    <severity>Средний</severity>
+    <severity_level>2</severity_level>
+    <status>Подтверждена</status>
+    <solution>Ограничить доступ</solution>
+    <vendor>LocalVendor</vendor>
+    <software>LocalApp</software>
+    <identify_date>2024-03-01</identify_date>
+  </vulnerability>
+</vulnerabilities>
+"""
+
+
+def seed_demo_intel_if_empty(db: Session) -> None:
+    """On first boot with empty CVE table, load mock NVD/BDU/KEV/EPSS for demos & E2E."""
+    from sqlalchemy import func
+
+    from app.models import CveRecord
+    from app.services.auth_helpers import get_setting, set_setting
+    from app.services.bdu_import import import_bdu_xml_content
+    from app.services.epss_sync import seed_mock_epss
+    from app.services.kev_sync import seed_mock_kev
+    from app.services.nvd_sync import seed_mock_cves
+
+    count = db.query(func.count(CveRecord.id)).scalar() or 0
+    if count > 0:
+        return
+
+    # Default mock mode when no NVD key configured yet
+    if not get_setting(db, "nvd_mock_mode", ""):
+        set_setting(db, "nvd_mock_mode", "true")
+
+    seed_mock_cves(db)
+    seed_mock_kev(db)
+    import_bdu_xml_content(db, SAMPLE_BDU_XML)
+    seed_mock_epss(db)
+    try:
+        from app.services.xdb import seed_sample_exploits
+
+        seed_sample_exploits(db)
+    except Exception as exc:  # pragma: no cover
+        print(f"[vbx-seed] xdb sample skipped: {exc}")

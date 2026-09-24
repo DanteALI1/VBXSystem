@@ -19,33 +19,26 @@
 5. Копирует код в `/opt/vbx/app` (или путь из conf)
 6. Генерирует секреты и `.env` из ваших данных
 7. Открывает порты в **firewalld**
-8. Поднимает `docker compose up -d`
+8. Поднимает `docker compose up -d --build`
 9. Ждёт HTTP-готовности
 10. Пишет отчёт **`VBX_INSTALL_INFO.txt`** (пароли, URL, команды)
 
-Пока код приложения ещё собирается волнами, скрипт подкладывает **bootstrap compose** (Postgres + Redis + stub API + nginx), чтобы установку на РЕД ОС можно было проверить сразу. Волна **W0** заменит stub на боевые сервисы, **не ломая** контракт `.env` / имена сервисов.
+Стек: Postgres 16, Redis 7, FastAPI (`api` + `worker`), Next.js (`web`), опционально MailHog.
 
 ---
 
 ## 2. Подготовка
 
-На машине администратора (или на самом сервере):
-
 ```bash
-# 1. Получите репозиторий (пример)
 sudo mkdir -p /opt/vbx-src
 sudo git clone <URL_РЕПОЗИТОРИЯ> /opt/vbx-src
 # или распакуйте release-архив
 
 cd /opt/vbx-src
-
-# 2. Скопируйте и заполните конфиг своими данными
 sudo cp deploy/redos/vbx.conf.example /root/vbx.conf
 sudo chmod 600 /root/vbx.conf
 sudo nano /root/vbx.conf
 ```
-
-Обязательно замените:
 
 | Параметр | Пример |
 |----------|--------|
@@ -79,27 +72,31 @@ sudo less /opt/vbx/VBX_INSTALL_INFO.txt
 
 ---
 
-## 4. Требования к серверу (ориентир)
+## 4. Требования к серверу
 
 | Ресурс | Минимум | Рекомендуется |
 |--------|---------|----------------|
 | CPU | 2 vCPU | 4+ |
 | RAM | 4 GB | 8–16 GB (полное зеркало NVD) |
 | Диск | 40 GB | 100+ GB SSD |
-| Сеть | доступ к dnf-репам РЕД ОС; для pull образов — Docker Hub или зеркало |
+| Сеть | dnf-репы РЕД ОС; Docker Hub или зеркало |
 
-Для air-gapped: заранее загрузите образы `postgres:16-alpine`, `redis:7-alpine`, `nginx`, runtime API/web и передайте через `docker load`.
+Air-gapped: заранее `docker load` образов `postgres:16-alpine`, `redis:7-alpine` и собранных api/web.
 
 ---
 
-## 5. Полезные команды после установки
+## 5. После установки
 
 ```bash
 cd /opt/vbx/app
 docker compose --env-file .env ps
 docker compose --env-file .env logs -f --tail=200
-docker compose --env-file .env restart
+curl -fsS http://127.0.0.1:8000/health
+curl -fsS http://127.0.0.1/login
 ```
+
+Бэкапы: [BACKUP.md](BACKUP.md). Обновление: [UPGRADE.md](UPGRADE.md).  
+Безопасность: [SECURITY_CHECKLIST.md](SECURITY_CHECKLIST.md). Пользователь: [USER_GUIDE_RU.md](USER_GUIDE_RU.md).
 
 ---
 
@@ -113,13 +110,32 @@ VBX_TLS_CERT_PATH="/path/to/fullchain.pem"
 VBX_TLS_KEY_PATH="/path/to/privkey.pem"
 ```
 
-Полный TLS termination в proxy будет доведён в W0/W8; до этого можно поставить внешний reverse-proxy (nginx/HAProxy) перед портом 80.
+Рекомендуется TLS termination на внешнем nginx/HAProxy перед портом web; порт API `8000` не публиковать наружу.
+
+Prod-настройки в `.env`:
+
+```bash
+VBX_CORS_ORIGINS=https://vbx.example.local
+VBX_TRUSTED_HOSTS=vbx.example.local,localhost
+```
 
 ---
 
-## 7. Требования к волнам разработки
+## 7. Валидация install.sh (W8)
 
-- **W0:** боевой `docker-compose.yml`, Dockerfile’ы api/web/worker; сохранить имена env из `vbx.env`.
-- **W8:** проверить этот скрипт на чистой РЕД ОС minimal VM; обновить `INSTALL_REDOS.md` по факту.
+Чистая РЕД ОС VM в этой среде недоступна. Проверено в CI/dev-агенте:
 
-См. также: `docs/agents/W0_foundation.md`, `docs/agents/W8_hardening.md`.
+| Проверка | Результат |
+|----------|-----------|
+| `bash -n deploy/redos/install.sh` | синтаксис OK |
+| `docker compose` стек (тот же compose, что ставит install) | healthy: api/web/postgres/redis/worker |
+| Контракт `.env` / `VBX_INSTALL_INFO.txt` поля | соответствуют `write_report` в install.sh |
+| E2E Playwright smoke | login → search → CVE → ticket → database settings |
+
+На чистой РЕД ОС minimal оператор повторяет §2–§3 и сверяет отчёт с таблицей выше.
+
+Скрипт самопроверки (на уже установленном хосте):
+
+```bash
+bash deploy/redos/validate-install.sh
+```

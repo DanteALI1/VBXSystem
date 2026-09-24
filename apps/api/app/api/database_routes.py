@@ -1,16 +1,17 @@
 from __future__ import annotations
 
 import json
-import shutil
 from datetime import datetime, timezone
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
 from fastapi.responses import JSONResponse
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user
+from app.core.config import get_settings
+from app.core.rate_limit import rate_limit
 from app.db import get_db
 from app.models import BduRecord, CisaKev, CveRecord, SourceFile, SyncRun, User, utcnow
 from app.schemas import (
@@ -29,7 +30,12 @@ from app.services.sync_jobs import enqueue_sync, process_sync_run
 
 router = APIRouter(prefix="/settings/database", tags=["database"])
 
-UPLOAD_ROOT = Path("/app/uploads/bdu")
+CHUNK = 1024 * 1024
+
+
+def _upload_root() -> Path:
+    raw = get_settings().vbx_upload_dir or "/app/uploads"
+    return Path(raw) / "bdu"
 
 
 def _user_can_manage_db(user: User) -> bool:
@@ -184,27 +190,65 @@ def start_kev_sync(
 
 @router.post("/bdu/upload", response_model=BduUploadOut)
 async def upload_bdu(
+    request: Request,
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
     user: User = Depends(_require_db_admin),
 ) -> BduUploadOut:
+    rate_limit(request, "bdu_upload", limit=5, window=300)
     name = file.filename or "bdu.xml"
     if not name.lower().endswith(".xml"):
         raise HTTPException(status_code=400, detail="Сейчас поддерживается XML выгрузка БДУ")
+    # Path traversal / odd names
+    safe_name = Path(name).name
+    if safe_name != name or ".." in name or "/" in name or "\\" in name:
+        raise HTTPException(status_code=400, detail="Некорректное имя файла")
 
-    UPLOAD_ROOT.mkdir(parents=True, exist_ok=True)
+    max_bytes = get_settings().vbx_max_bdu_upload_bytes
+    cl = request.headers.get("content-length")
+    if cl is not None:
+        try:
+            # multipart overhead; still reject obviously huge bodies early
+            if int(cl) > max_bytes + (1024 * 1024):
+                raise HTTPException(
+                    status_code=413,
+                    detail=f"Файл БДУ превышает лимит {max_bytes // (1024 * 1024)} МБ",
+                )
+        except ValueError:
+            pass
+
+    upload_root = _upload_root()
+    upload_root.mkdir(parents=True, exist_ok=True)
     run = enqueue_sync(db, "bdu", created_by=user.id)
     stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
-    dest = UPLOAD_ROOT / f"{stamp}-{name}"
-    with dest.open("wb") as out:
-        shutil.copyfileobj(file.file, out)
+    dest = upload_root / f"{stamp}-{safe_name}"
+    written = 0
+    try:
+        with dest.open("wb") as out:
+            while True:
+                chunk = await file.read(CHUNK)
+                if not chunk:
+                    break
+                written += len(chunk)
+                if written > max_bytes:
+                    raise HTTPException(
+                        status_code=413,
+                        detail=f"Файл БДУ превышает лимит {max_bytes // (1024 * 1024)} МБ",
+                    )
+                out.write(chunk)
+    except HTTPException:
+        dest.unlink(missing_ok=True)
+        raise
+    except Exception:
+        dest.unlink(missing_ok=True)
+        raise
 
     db.add(
         SourceFile(
             source="bdu",
-            filename=name,
+            filename=safe_name,
             stored_path=str(dest),
-            size_bytes=dest.stat().st_size,
+            size_bytes=written,
             sync_run_id=run.id,
             created_at=utcnow(),
         )
@@ -213,8 +257,8 @@ async def upload_bdu(
 
     process_sync_run(db, run.id)
     run = db.get(SyncRun, run.id)
-    write_audit(db, action="database.bdu_upload", actor_user_id=user.id, resource=name)
-    return BduUploadOut(run=_sync_out(run), message="Импорт БДУ выполнен", filename=name)
+    write_audit(db, action="database.bdu_upload", actor_user_id=user.id, resource=safe_name)
+    return BduUploadOut(run=_sync_out(run), message="Импорт БДУ выполнен", filename=safe_name)
 
 
 @router.get("/export/cves")

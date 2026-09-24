@@ -30,10 +30,15 @@ test.describe("W5 XDB", () => {
     await page.goto(`${BASE}/xdb`);
     await expect(page.getByTestId("xdb-page")).toBeVisible({ timeout: 20000 });
 
-    const sampleBtn = page.getByRole("button", { name: /sample dataset/i });
-    if (await sampleBtn.isVisible()) {
+    // Wait until auth/RBAC finishes — Sample button only for vuln:sync
+    const sampleBtn = page.getByRole("button", { name: /^Sample dataset$/i });
+    await expect(sampleBtn).toBeVisible({ timeout: 20000 });
+
+    // Table may already have demo seed; import is idempotent
+    const existing = page.getByTestId("xdb-XDB-2024-0001");
+    if (!(await existing.isVisible().catch(() => false))) {
       await sampleBtn.click();
-      await expect(page.getByTestId("xdb-XDB-2024-0001")).toBeVisible({ timeout: 15000 });
+      await expect(existing).toBeVisible({ timeout: 15000 });
     }
 
     await page.getByRole("link", { name: "CVE-2024-0001" }).first().click();

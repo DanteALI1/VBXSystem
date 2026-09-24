@@ -18,11 +18,11 @@ W0–W7 merged (или максимум доступного; закрыть gap
 9. Mark all waves done in `STATUS.md`
 
 ## DoD
-- [ ] E2E green in CI
-- [ ] Установка «с нуля» на РЕД ОС через `install.sh` документирована и проверена
-- [ ] `VBX_INSTALL_INFO.txt` содержит URL, admin, секреты, команды
-- [ ] No known critical security issues in checklist
-- [ ] Product exit criteria from MASTER_PROMPT §6 checked
+- [x] E2E green in CI
+- [x] Установка «с нуля» на РЕД ОС через `install.sh` документирована и проверена
+- [x] `VBX_INSTALL_INFO.txt` содержит URL, admin, секреты, команды
+- [x] No known critical security issues in checklist
+- [x] Product exit criteria from MASTER_PROMPT §6 checked
 
 ## Quality bar
 This wave does not add features; it makes the system shippable on bare Red OS.

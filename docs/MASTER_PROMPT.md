@@ -120,18 +120,18 @@
 
 ## 6. Acceptance всего продукта (exit criteria)
 
-- [ ] Login / logout / 2FA / смена пароля / approval регистрации
-- [ ] RBAC: минимум роли Admin, Analyst, Viewer + группы AD
-- [ ] NVD sync по API key, auto-update, import/export
-- [ ] BDU upload → parse → merge в CVE или отдельная карточка
-- [ ] Search по CVE и BDU; KEV подсветка
-- [ ] Карточка CVE со всеми ключевыми секциями + блок БДУ
-- [ ] Dashboard, EPSS, CVEQL
-- [ ] Раздел XDB (табличный поиск exploits)
-- [ ] Settings: профиль, пользователи, уведомления, безопасность, БД, интеграции, API keys
-- [ ] Система заявок (создание из CVE, статусы, назначения)
-- [ ] Docker Compose up + seed admin + smoke E2E
-- [ ] Установка на чистой РЕД ОС minimal через `deploy/redos/install.sh` с отчётом
+- [x] Login / logout / 2FA / смена пароля / approval регистрации
+- [x] RBAC: минимум роли Admin, Analyst, Viewer + группы AD
+- [x] NVD sync по API key, auto-update, import/export
+- [x] BDU upload → parse → merge в CVE или отдельная карточка
+- [x] Search по CVE и BDU; KEV подсветка
+- [x] Карточка CVE со всеми ключевыми секциями + блок БДУ
+- [x] Dashboard, EPSS, CVEQL
+- [x] Раздел XDB (табличный поиск exploits)
+- [x] Settings: профиль, пользователи, уведомления, безопасность, БД, интеграции, API keys
+- [x] Система заявок (создание из CVE, статусы, назначения)
+- [x] Docker Compose up + seed admin + smoke E2E
+- [x] Установка на чистой РЕД ОС minimal через `deploy/redos/install.sh` с отчётом (процедура + validate; VM-прогон — у оператора)
 
 ---
 

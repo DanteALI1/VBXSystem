@@ -1,10 +1,12 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user, require_permissions
+from app.core.config import get_settings
+from app.core.rate_limit import rate_limit
 from app.db import get_db
 from app.models import User
 from app.schemas import ExploitImportOut, ExploitListOut, MessageOut
@@ -68,11 +70,19 @@ def xdb_import_json(
 
 @router.post("/import/file", response_model=ExploitImportOut)
 async def xdb_import_file(
+    request: Request,
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
     user: User = Depends(require_permissions("vuln:sync")),
 ) -> ExploitImportOut:
-    raw = await file.read()
+    rate_limit(request, "xdb_upload", limit=10, window=300)
+    max_bytes = get_settings().vbx_max_xdb_upload_bytes
+    raw = await file.read(max_bytes + 1)
+    if len(raw) > max_bytes:
+        raise HTTPException(
+            status_code=413,
+            detail=f"Файл XDB превышает лимит {max_bytes // (1024 * 1024)} МБ",
+        )
     if not raw:
         raise HTTPException(status_code=400, detail="Пустой файл")
     name = (file.filename or "").lower()
