@@ -15,6 +15,7 @@ from app.api import (
     routes,
     search_routes,
     users_routes,
+    xdb_routes,
 )
 from app.core.config import get_settings
 from app.db import SessionLocal
@@ -36,7 +37,7 @@ async def lifespan(_: FastAPI):
 
 def create_app() -> FastAPI:
     settings = get_settings()
-    app = FastAPI(title="VBXSystem API", version="0.3.0", lifespan=lifespan)
+    app = FastAPI(title="VBXSystem API", version="0.4.0", lifespan=lifespan)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.cors_origins_list or ["*"],
@@ -54,6 +55,7 @@ def create_app() -> FastAPI:
     app.include_router(dashboard_routes.router)
     app.include_router(epss_routes.router)
     app.include_router(cveql_routes.router)
+    app.include_router(xdb_routes.router)
     return app
 
 

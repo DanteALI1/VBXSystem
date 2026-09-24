@@ -7,6 +7,7 @@ from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 
 from app.models import BduRecord, CisaKev, CveBduLink, CveRecord, EpssScore
+from app.services.xdb import exploits_for_cve
 
 
 def _parse_json_list(raw: str | None) -> list:
@@ -292,6 +293,7 @@ def get_cve_detail(db: Session, cve_id: str) -> dict | None:
             }
             for b in bdus
         ],
+        "exploits": exploits_for_cve(db, cve.id),
     }
 
 

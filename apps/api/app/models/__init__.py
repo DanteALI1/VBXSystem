@@ -263,3 +263,21 @@ class SourceFile(Base):
     size_bytes: Mapped[int] = mapped_column(Integer, default=0)
     sync_run_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("sync_runs.id", ondelete="SET NULL"), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class ExploitRecord(Base):
+    """XDB-style exploit metadata only (links/refs — no payloads)."""
+
+    __tablename__ = "exploits"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    xdb_id: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    cve_id: Mapped[str | None] = mapped_column(String(32), nullable=True, index=True)
+    published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
+    repo_url: Mapped[str] = mapped_column(String(1024), default="")
+    repo_name: Mapped[str] = mapped_column(String(512), default="")
+    author: Mapped[str] = mapped_column(String(255), default="", index=True)
+    source: Mapped[str] = mapped_column(String(64), default="import")
+    raw_meta: Mapped[str] = mapped_column(Text, default="{}")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)

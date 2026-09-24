@@ -254,6 +254,7 @@ class CveDetailOut(BaseModel):
     kev: dict | None = None
     epss: dict | None = None
     bdu: list = []
+    exploits: list = []
 
 
 class BduDetailOut(BaseModel):
@@ -358,3 +359,28 @@ class CveqlExecuteOut(BaseModel):
     offset: int
     results: list[CveqlHitOut]
     fields: list[str] = []
+
+
+class ExploitOut(BaseModel):
+    xdb_id: str
+    cve_id: str | None = None
+    published_at: str | None = None
+    repo_url: str = ""
+    repo_name: str = ""
+    author: str = ""
+    source: str = ""
+
+
+class ExploitListOut(BaseModel):
+    total: int
+    page: int
+    page_size: int
+    results: list[ExploitOut]
+
+
+class ExploitImportOut(BaseModel):
+    message: str
+    created: int = 0
+    updated: int = 0
+    skipped: int = 0
+    total: int = 0

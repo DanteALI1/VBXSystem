@@ -51,6 +51,15 @@ type CveDetail = {
     software_names?: string;
     identify_date?: string;
   }>;
+  exploits?: Array<{
+    xdb_id: string;
+    cve_id?: string | null;
+    published_at?: string | null;
+    repo_url: string;
+    repo_name: string;
+    author: string;
+    source?: string;
+  }>;
 };
 
 function refUrl(ref: unknown): string | null {
@@ -113,6 +122,11 @@ export default function VulnDetailPage() {
             {data.bdu.length > 0 && (
               <Badge tone="accent" aria-label="Есть БДУ">
                 BDU ×{data.bdu.length}
+              </Badge>
+            )}
+            {(data.exploits?.length || 0) > 0 && (
+              <Badge tone="neutral" aria-label="Связанные exploits">
+                XDB ×{data.exploits!.length}
               </Badge>
             )}
             {data.status && <Badge>{data.status}</Badge>}
@@ -260,6 +274,38 @@ export default function VulnDetailPage() {
               </div>
             ))}
           </div>
+        </Card>
+      )}
+
+      {(data.exploits?.length || 0) > 0 && (
+        <Card data-testid="exploits-panel">
+          <h2 className="font-display text-lg font-semibold">Related exploits (XDB)</h2>
+          <ul className="mt-3 space-y-2 text-sm">
+            {data.exploits!.map((e) => (
+              <li key={e.xdb_id} className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-border px-3 py-2">
+                <div>
+                  <div className="font-mono text-xs text-muted">{e.xdb_id}</div>
+                  <div className="font-medium">{e.repo_name || e.author || "repo"}</div>
+                  <div className="text-xs text-muted">{e.author}</div>
+                </div>
+                {e.repo_url ? (
+                  <a
+                    href={e.repo_url}
+                    target="_blank"
+                    rel="noreferrer noopener"
+                    className="inline-flex items-center gap-1 text-accent2 hover:underline"
+                  >
+                    Repository
+                    <ExternalLink size={12} />
+                  </a>
+                ) : (
+                  <Link href="/xdb" className="text-accent2 hover:underline">
+                    XDB
+                  </Link>
+                )}
+              </li>
+            ))}
+          </ul>
         </Card>
       )}
 
