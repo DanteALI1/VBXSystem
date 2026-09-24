@@ -5,15 +5,19 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import joinedload
 
 from app.api import (
+    api_keys_routes,
     auth_routes,
     cveql_routes,
     dashboard_routes,
     database_routes,
     epss_routes,
     groups_routes,
+    integrations_routes,
+    notifications_routes,
     profile_routes,
     routes,
     search_routes,
+    security_routes,
     users_routes,
     xdb_routes,
 )
@@ -37,7 +41,7 @@ async def lifespan(_: FastAPI):
 
 def create_app() -> FastAPI:
     settings = get_settings()
-    app = FastAPI(title="VBXSystem API", version="0.4.0", lifespan=lifespan)
+    app = FastAPI(title="VBXSystem API", version="0.5.0", lifespan=lifespan)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.cors_origins_list or ["*"],
@@ -56,6 +60,10 @@ def create_app() -> FastAPI:
     app.include_router(epss_routes.router)
     app.include_router(cveql_routes.router)
     app.include_router(xdb_routes.router)
+    app.include_router(notifications_routes.router)
+    app.include_router(security_routes.router)
+    app.include_router(integrations_routes.router)
+    app.include_router(api_keys_routes.router)
     return app
 
 

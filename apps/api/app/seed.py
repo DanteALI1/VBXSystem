@@ -38,6 +38,7 @@ ROLES = {
             "tickets:write",
             "tickets:manage",
             "audit:read",
+            "api_keys:manage",
         ],
     },
     "analyst": {

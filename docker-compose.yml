@@ -108,6 +108,14 @@ services:
       timeout: 5s
       retries: 12
 
+  mailhog:
+    image: mailhog/mailhog:v1.0.1
+    restart: unless-stopped
+    ports:
+      - "${VBX_MAILHOG_SMTP_PORT:-1025}:1025"
+      - "${VBX_MAILHOG_UI_PORT:-8025}:8025"
+    mem_limit: 256m
+
 volumes:
   vbx_pg:
   vbx_redis:
