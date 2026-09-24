@@ -109,10 +109,30 @@ export default function DatabaseSettingsPage() {
   async function syncNvd() {
     setBusy(true);
     setErr(null);
+    setMsg(null);
     try {
       const res = await api<{ message: string }>("/settings/database/sync/nvd", { method: "POST" });
       setMsg(res.message);
       await reload();
+      // Full NVD mirror can take 1–3h — poll progress from worker stats
+      for (let i = 0; i < 900; i++) {
+        await new Promise((r) => setTimeout(r, 10000));
+        const snap = await api<DbSettings>("/settings/database");
+        setData(snap);
+        const st = snap.last_nvd_sync?.status;
+        const stats = snap.last_nvd_sync?.stats || {};
+        const pct = typeof stats.pct === "number" ? ` ${stats.pct}%` : "";
+        const idx = stats.startIndex != null ? ` idx=${stats.startIndex}` : "";
+        if (st === "success") {
+          setMsg(`NVD sync готов: CVE в базе ${snap.stats.cve_count}${pct}`);
+          break;
+        }
+        if (st === "failed") {
+          setErr(snap.last_nvd_sync?.error || "NVD sync failed");
+          break;
+        }
+        setMsg(`NVD sync: ${st || "pending"}… CVE ${snap.stats.cve_count}${pct}${idx}`);
+      }
     } catch (ex) {
       setErr(ex instanceof Error ? ex.message : "Ошибка");
     } finally {
@@ -122,10 +142,17 @@ export default function DatabaseSettingsPage() {
 
   async function syncKev() {
     setBusy(true);
+    setMsg(null);
+    setErr(null);
     try {
       const res = await api<{ message: string }>("/settings/database/sync/kev", { method: "POST" });
       setMsg(res.message);
-      await reload();
+      for (let i = 0; i < 20; i++) {
+        await new Promise((r) => setTimeout(r, 2000));
+        const snap = await api<DbSettings>("/settings/database");
+        setData(snap);
+        if (snap.last_kev_sync?.status === "success" || snap.last_kev_sync?.status === "failed") break;
+      }
     } catch (ex) {
       setErr(ex instanceof Error ? ex.message : "Ошибка");
     } finally {
@@ -237,6 +264,9 @@ export default function DatabaseSettingsPage() {
           <div className="rounded-xl border border-border bg-surface2/60 p-4">
             <div className="text-xs uppercase tracking-wide text-muted">Последняя синхронизация</div>
             <div className="mt-2 text-lg font-medium">{fmtDate(data.last_nvd_sync?.finished_at)}</div>
+            {data.last_nvd_sync?.status ? (
+              <div className="mt-1 text-xs text-muted">статус: {data.last_nvd_sync.status}</div>
+            ) : null}
           </div>
           <div className="rounded-xl border border-border bg-surface2/60 p-4">
             <div className="text-xs uppercase tracking-wide text-muted">Загружено CVE</div>
@@ -321,13 +351,17 @@ export default function DatabaseSettingsPage() {
           <h2 className="font-display text-lg font-semibold">База БДУ (ФСТЭК)</h2>
         </div>
         <p className="mb-4 text-sm text-muted">
-          Загрузите XML-выгрузку БДУ или синхронизируйте по URL (как в VULNEX). Записи с CVE — в секцию
+          Актуальная выгрузка ФСТЭК — <code className="text-xs">vullist.xlsx</code> (старый{" "}
+          <code className="text-xs">vulxml.xml</code> больше не отдаётся, 404). Записи с CVE — в секцию
           карточки; без CVE — отдельные карточки BDU.
         </p>
         <div className="mb-4 grid gap-3 sm:grid-cols-3">
           <div className="rounded-xl border border-border bg-surface2/60 p-4">
             <div className="text-xs text-muted">Последний импорт</div>
             <div className="mt-2 font-medium">{fmtDate(data.last_bdu_sync?.finished_at)}</div>
+            {data.last_bdu_sync?.status ? (
+              <div className="mt-1 text-xs text-muted">статус: {data.last_bdu_sync.status}</div>
+            ) : null}
           </div>
           <div className="rounded-xl border border-border bg-surface2/60 p-4">
             <div className="text-xs text-muted">Привязано к CVE</div>
@@ -364,7 +398,7 @@ export default function DatabaseSettingsPage() {
               label="URL XML-выгрузки БДУ"
               value={data.bdu_xml_url || ""}
               onChange={(e) => setData({ ...data, bdu_xml_url: e.target.value })}
-              placeholder="https://bdu.fstec.ru/files/documents/vulxml.xml"
+              placeholder="https://bdu.fstec.ru/files/documents/vullist.xlsx"
             />
           </div>
           <Button type="submit" variant="secondary" disabled={busy}>
@@ -384,6 +418,23 @@ export default function DatabaseSettingsPage() {
                 });
                 setMsg(res.message);
                 await reload();
+                for (let i = 0; i < 60; i++) {
+                  await new Promise((r) => setTimeout(r, 5000));
+                  const snap = await api<DbSettings>("/settings/database");
+                  setData(snap);
+                  const st = snap.last_bdu_sync?.status;
+                  if (st === "success") {
+                    setMsg(
+                      `БДУ готов: всего ${snap.stats.bdu_count}, mapped ${snap.stats.bdu_mapped}, standalone ${snap.stats.bdu_standalone}`,
+                    );
+                    break;
+                  }
+                  if (st === "failed") {
+                    setErr(snap.last_bdu_sync?.error || "BDU sync failed");
+                    break;
+                  }
+                  setMsg(`БДУ: ${st || "pending"}… записей ${snap.stats.bdu_count}`);
+                }
               } catch (ex) {
                 setErr(ex instanceof Error ? ex.message : "Ошибка sync БДУ");
               } finally {
@@ -397,7 +448,7 @@ export default function DatabaseSettingsPage() {
         <label className="inline-flex cursor-pointer items-center">
           <input
             type="file"
-            accept=".xml,text/xml,application/xml"
+            accept=".xml,.xlsx,text/xml,application/xml,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             className="hidden"
             disabled={busy}
             onChange={(e) => {
@@ -407,7 +458,7 @@ export default function DatabaseSettingsPage() {
             }}
           />
           <span className="inline-flex items-center gap-2 rounded-xl bg-accent px-4 py-2.5 text-sm font-medium text-white hover:bg-accent2">
-            <Upload size={16} /> Загрузить БДУ (XML)
+            <Upload size={16} /> Загрузить БДУ (XML/XLSX)
           </span>
         </label>
         {data.last_bdu_sync?.error ? (
@@ -415,8 +466,12 @@ export default function DatabaseSettingsPage() {
         ) : null}
       </Card>
 
+      {busy ? <p className="text-sm text-accent2">Выполняется операция… не закрывайте вкладку.</p> : null}
       {msg ? <p className="text-sm text-ok">{msg}</p> : null}
       {err ? <p className="text-sm text-danger">{err}</p> : null}
+      {data.last_nvd_sync?.status === "failed" && data.last_nvd_sync.error ? (
+        <p className="text-sm text-danger">NVD: {data.last_nvd_sync.error}</p>
+      ) : null}
     </div>
   );
 }

@@ -124,6 +124,9 @@ def xdb_import_sample(
 
 @router.get("/connector/stub", response_model=MessageOut)
 def xdb_connector_stub(_: User = Depends(require_permissions("vuln:sync"))) -> MessageOut:
-    return MessageOut(
-        message="Коннектор внешней ленты XDB — заглушка. Используйте CSV/JSON import.",
+    from fastapi import HTTPException
+
+    raise HTTPException(
+        status_code=501,
+        detail="Коннектор внешней ленты XDB пока недоступен. Используйте CSV/JSON import.",
     )

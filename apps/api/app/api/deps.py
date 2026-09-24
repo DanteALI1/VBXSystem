@@ -1,64 +1,85 @@
 from __future__ import annotations
 
-from fastapi import Depends, Header, HTTPException, status
+from fastapi import Depends, Header, HTTPException, Request, status
 from sqlalchemy.orm import Session, joinedload
 
+from app.core.config import get_settings
 from app.core.security import decode_token
 from app.db import get_db
 from app.models import Role, User
 from app.services.api_keys import key_scopes, resolve_api_key
 
 
+def _load_user(db: Session, user_id: int) -> User | None:
+    return (
+        db.query(User)
+        .options(
+            joinedload(User.roles).joinedload(Role.permissions),
+            joinedload(User.groups),
+        )
+        .filter(User.id == user_id)
+        .one_or_none()
+    )
+
+
+def _user_from_access_jwt(db: Session, token: str) -> User | None:
+    payload = decode_token(token)
+    if not payload or payload.get("type") != "access":
+        return None
+    user_id = payload.get("sub")
+    if not user_id:
+        return None
+    try:
+        uid = int(user_id)
+    except (TypeError, ValueError):
+        return None
+    user = _load_user(db, uid)
+    if not user or user.status != "active":
+        return None
+    return user
+
+
 def get_current_user(
+    request: Request,
     db: Session = Depends(get_db),
     authorization: str | None = Header(default=None),
     x_api_key: str | None = Header(default=None, alias="X-API-Key"),
 ) -> User:
-    raw_key = None
+    settings = get_settings()
+
     if x_api_key:
         raw_key = x_api_key.strip()
-    elif authorization and authorization.lower().startswith("bearer "):
-        token = authorization.split(" ", 1)[1].strip()
-        if token.startswith("vbx_"):
-            raw_key = token
-        else:
-            payload = decode_token(token)
-            if not payload or payload.get("type") != "access":
-                raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Недействительный токен")
-            user_id = payload.get("sub")
-            user = (
-                db.query(User)
-                .options(
-                    joinedload(User.roles).joinedload(Role.permissions),
-                    joinedload(User.groups),
-                )
-                .filter(User.id == int(user_id))
-                .one_or_none()
-                if user_id
-                else None
-            )
-            if not user or user.status != "active":
-                raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Пользователь недоступен")
-            return user
-
-    if raw_key:
         api_key = resolve_api_key(db, raw_key)
         if not api_key:
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Недействительный API-ключ")
-        user = (
-            db.query(User)
-            .options(
-                joinedload(User.roles).joinedload(Role.permissions),
-                joinedload(User.groups),
-            )
-            .filter(User.id == api_key.owner_user_id)
-            .one_or_none()
-        )
+        user = _load_user(db, api_key.owner_user_id)
         if not user or user.status != "active":
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Владелец ключа недоступен")
-        # stash scopes on user object for require_permissions
         user._api_key_scopes = key_scopes(api_key)  # type: ignore[attr-defined]
         return user
+
+    if authorization and authorization.lower().startswith("bearer "):
+        token = authorization.split(" ", 1)[1].strip()
+        if token.startswith("vbx_"):
+            api_key = resolve_api_key(db, token)
+            if not api_key:
+                raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Недействительный API-ключ")
+            user = _load_user(db, api_key.owner_user_id)
+            if not user or user.status != "active":
+                raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Владелец ключа недоступен")
+            user._api_key_scopes = key_scopes(api_key)  # type: ignore[attr-defined]
+            return user
+        user = _user_from_access_jwt(db, token)
+        if not user:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Недействительный токен")
+        return user
+
+    if settings.vbx_auth_cookies:
+        cookie = request.cookies.get(settings.vbx_access_cookie)
+        if cookie:
+            user = _user_from_access_jwt(db, cookie)
+            if user:
+                return user
 
     raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Требуется авторизация")
 
@@ -80,7 +101,6 @@ def require_permissions(*codes: str):
         have = user_permissions(user)
         if "*" in have:
             return user
-        # API key auth must satisfy scopes explicitly (even for super_admin owners)
         if getattr(user, "_api_key_scopes", None) is not None:
             missing = [c for c in codes if c not in have]
             if missing:

@@ -84,6 +84,8 @@ def test_search_finds_cve_and_standalone_bdu(client):
     r = client.get("/search", headers={"Authorization": f"Bearer {tok}"})
     assert r.status_code == 200
     body = r.json()
+    assert body["total"] >= len(body["results"])
+    assert body["total"] >= 3
     ids = {hit["id"] for hit in body["results"]}
     assert "CVE-2024-0001" in ids
     assert "CVE-2023-44487" in ids
@@ -93,6 +95,22 @@ def test_search_finds_cve_and_standalone_bdu(client):
     bdu_linked = next(h for h in body["results"] if h["id"] == "CVE-2024-0001")
     assert bdu_linked["has_bdu"] is True
     assert bdu_linked["epss"]["score"] == pytest.approx(0.42)
+
+
+def test_search_pagination_totals(client):
+    tok = _token(client)
+    r1 = client.get("/search", params={"page": 1, "page_size": 2}, headers={"Authorization": f"Bearer {tok}"})
+    assert r1.status_code == 200
+    b1 = r1.json()
+    assert len(b1["results"]) <= 2
+    assert b1["total"] >= 3
+    r2 = client.get("/search", params={"page": 2, "page_size": 2}, headers={"Authorization": f"Bearer {tok}"})
+    assert r2.status_code == 200
+    b2 = r2.json()
+    assert b2["total"] == b1["total"]
+    ids1 = {h["id"] for h in b1["results"]}
+    ids2 = {h["id"] for h in b2["results"]}
+    assert ids1.isdisjoint(ids2) or b1["total"] <= 2
 
 
 def test_search_query_bdu_text(client):

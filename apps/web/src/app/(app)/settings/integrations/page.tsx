@@ -3,6 +3,7 @@
 import { FormEvent, useEffect, useState } from "react";
 import { api } from "@/lib/api";
 import { useAuth } from "@/lib/useAuth";
+import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { Input } from "@/components/ui/Input";
@@ -173,7 +174,17 @@ export default function IntegrationsPage() {
       </Card>
 
       <Card>
-        <h2 className="mb-3 font-display text-lg font-semibold">LDAP / Active Directory</h2>
+        <div className="mb-3 flex flex-wrap items-center gap-2">
+          <h2 className="font-display text-lg font-semibold">LDAP / Active Directory</h2>
+          <Badge tone={data.ldap.mock_mode ? "warn" : "neutral"}>
+            {data.ldap.mock_mode ? "mock" : "live TCP"}
+          </Badge>
+        </div>
+        <p className="mb-3 text-xs text-muted">
+          {data.ldap.mock_mode
+            ? "Сейчас demo-группы без реального каталога. Снимите Mock mode для TCP-проверки bind."
+            : "Live bind/search по TCP. Полный AD provisioning — staging."}
+        </p>
         <form onSubmit={saveLdap} className="grid gap-3 md:grid-cols-2">
           <Input label="Host" value={data.ldap.host} onChange={(e) => setData({ ...data, ldap: { ...data.ldap, host: e.target.value } })} />
           <Input label="Port" type="number" value={String(data.ldap.port)} onChange={(e) => setData({ ...data, ldap: { ...data.ldap, port: Number(e.target.value) } })} />
@@ -195,7 +206,15 @@ export default function IntegrationsPage() {
       </Card>
 
       <Card>
-        <h2 className="mb-3 font-display text-lg font-semibold">SSO (OIDC/SAML)</h2>
+        <div className="mb-3 flex flex-wrap items-center gap-2">
+          <h2 className="font-display text-lg font-semibold">SSO (OIDC/SAML)</h2>
+          <Badge tone={data.sso.staging || !data.sso.enabled ? "warn" : "neutral"}>
+            {data.sso.enabled ? (data.sso.staging ? "staging" : "config") : "disabled"}
+          </Badge>
+        </div>
+        <p className="mb-3 text-xs text-muted">
+          Сохранение конфигурации доступно; полноценный OIDC login flow — в roadmap (не live).
+        </p>
         <form onSubmit={saveSso} className="grid gap-3 md:grid-cols-2">
           <Input label="Provider" value={data.sso.provider} onChange={(e) => setData({ ...data, sso: { ...data.sso, provider: e.target.value } })} />
           <Input label="Client ID" value={data.sso.client_id} onChange={(e) => setData({ ...data, sso: { ...data.sso, client_id: e.target.value } })} />

@@ -124,13 +124,19 @@ export default function SecuritySettingsPage() {
             disabled={!canEdit}
             onChange={(e) => setData({ ...data, mtls_enabled: e.target.checked })}
           />
-          API client certificate (mTLS) — включено
+          API client certificate (mTLS) — политика / CA storage
+          <Badge tone="warn" className="ml-2">
+            через reverse-proxy
+          </Badge>
           {data.mtls_ca_configured && (
             <Badge tone="ok" className="ml-2">
               CA загружен
             </Badge>
           )}
         </label>
+        <p className="text-xs text-muted">
+          Приложение хранит CA и инструкции; enforcement ожидается на reverse-proxy / ingress, не в FastAPI.
+        </p>
         <label className="block text-sm">
           <span className="mb-1 block text-muted">Инструкции mTLS</span>
           <textarea

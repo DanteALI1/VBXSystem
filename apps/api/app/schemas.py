@@ -34,6 +34,14 @@ class LoginResponse(BaseModel):
     is_new_device: bool = False
 
 
+class RefreshRequest(BaseModel):
+    refresh_token: str = ""
+
+
+class SessionModeOut(BaseModel):
+    cookies: bool = False
+
+
 class TwoFAVerifyRequest(BaseModel):
     temp_token: str
     code: str = Field(min_length=4, max_length=32)
@@ -274,6 +282,22 @@ class BduDetailOut(BaseModel):
     solution: str = ""
     vendors: str = ""
     software_names: str = ""
+    software_versions: str = ""
+    software_type: str = ""
+    os_platform: str = ""
+    vuln_class: str = ""
+    cvss2_vector: str = ""
+    cvss3_vector: str = ""
+    cvss4_vector: str = ""
+    exploit_status: str = ""
+    fix_info: str = ""
+    exploit_method: str = ""
+    fix_method: str = ""
+    references: list[str] = []
+    published_date: str = ""
+    updated_date: str = ""
+    cwe_description: str = ""
+    extra: dict = {}
     cwes: str = ""
     linked_cve_ids: list[str] = []
     identify_date: str = ""
@@ -293,10 +317,16 @@ class DashboardKpiOut(BaseModel):
 class DashboardHitOut(BaseModel):
     id: str
     title: str
+    summary: str = ""
     severity: str = ""
     cvss_score: float | None = None
     published_at: str | None = None
     is_cisa_kev: bool = False
+    reason: str = ""  # watchlist | kev_new | kev | epss | critical
+    vendor: str = ""
+    product: str = ""
+    kev_date_added: str | None = None
+    epss_score: float | None = None
     href: str
 
 
@@ -305,15 +335,6 @@ class SyncHealthItemOut(BaseModel):
     status: str
     finished_at: str | None = None
     error: str = ""
-
-
-class DashboardOut(BaseModel):
-    kpis: DashboardKpiOut
-    chart_range: str
-    activity: list[dict]
-    recent_critical: list[DashboardHitOut]
-    recent_kev: list[DashboardHitOut]
-    sync_health: dict[str, SyncHealthItemOut | None]
 
 
 class EpssRowOut(BaseModel):
@@ -327,6 +348,29 @@ class EpssRowOut(BaseModel):
     href: str
     previous_score: float | None = None
     delta: float | None = None
+
+
+class DashboardCatalogStatsOut(BaseModel):
+    cve_total: int = 0
+    bdu_total: int = 0
+    local_total: int = 0
+    kev_catalog: int = 0
+    epss_scored: int = 0
+
+
+class DashboardOut(BaseModel):
+    kpis: DashboardKpiOut
+    catalog_stats: DashboardCatalogStatsOut = DashboardCatalogStatsOut()
+    chart_range: str
+    activity: list[dict]
+    attention_feed: list[DashboardHitOut] = []
+    attention_window_days: int = 30
+    attention_epss_min: float = 0.7
+    recent_critical: list[DashboardHitOut] = []
+    recent_kev: list[DashboardHitOut] = []
+    epss_top: list[EpssRowOut] = []
+    epss_deltas: list[EpssRowOut] = []
+    sync_health: dict[str, SyncHealthItemOut | None]
 
 
 class EpssOverviewOut(BaseModel):

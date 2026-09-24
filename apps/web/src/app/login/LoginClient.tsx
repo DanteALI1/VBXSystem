@@ -6,7 +6,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { Shield } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
-import { setTokens } from "@/lib/api";
+import { resolveSessionMode, setTokens } from "@/lib/api";
 
 type LoginResult = {
   access_token?: string;
@@ -29,12 +29,17 @@ export default function LoginPage() {
   const next = params.get("next") || "/dashboard";
 
   const [brand, setBrand] = useState<Branding | null>(null);
-  const [username, setUsername] = useState("admin");
+  const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [totpCode, setTotpCode] = useState("");
   const [tempToken, setTempToken] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const demoPrefill = process.env.NEXT_PUBLIC_VBX_DEMO === "1";
+
+  useEffect(() => {
+    if (demoPrefill) setUsername("admin");
+  }, [demoPrefill]);
 
   useEffect(() => {
     fetch("/api/branding")
@@ -48,8 +53,11 @@ export default function LoginPage() {
       setTempToken(data.temp_token);
       return;
     }
-    if (!data.access_token) throw new Error("Токен не получен");
-    setTokens(data.access_token, data.refresh_token);
+    const cookieMode = await resolveSessionMode();
+    if (!cookieMode) {
+      if (!data.access_token) throw new Error("Токен не получен");
+      setTokens(data.access_token, data.refresh_token);
+    }
     router.push(next);
   }
 
@@ -62,6 +70,7 @@ export default function LoginPage() {
         const res = await fetch("/api/auth/login/2fa", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
+          credentials: "include",
           body: JSON.stringify({
             temp_token: tempToken,
             code: totpCode,
@@ -75,6 +84,7 @@ export default function LoginPage() {
         const res = await fetch("/api/auth/login", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
+          credentials: "include",
           body: JSON.stringify({
             username,
             password,
@@ -174,7 +184,9 @@ export default function LoginPage() {
             <p className="mb-5 text-sm text-muted">
               {tempToken
                 ? "Введите код из приложения-аутентификатора"
-                : "Корпоративный доступ к базе уязвимостей"}
+                : demoPrefill
+                  ? "Демо-режим: логин подсказан. Смените пароль после первого входа."
+                  : "Корпоративный доступ к базе уязвимостей"}
             </p>
             <form className="space-y-4" onSubmit={onSubmit}>
               {!tempToken ? (

@@ -16,7 +16,7 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
 } from "lucide-react";
-import { clearTokens } from "@/lib/api";
+import { logoutRequest } from "@/lib/api";
 import { useAuth } from "@/lib/useAuth";
 
 const NAV = [
@@ -60,8 +60,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     });
   }
 
-  function logout() {
-    clearTokens();
+  async function logout() {
+    await logoutRequest();
     router.push("/login");
   }
 

@@ -4,11 +4,12 @@ import secrets
 
 import pyotp
 import qrcode
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Body, Depends, HTTPException, Request, Response, status
 from sqlalchemy.orm import Session, joinedload
 
 from app.api.deps import get_current_user
 from app.api.serializers import user_to_out
+from app.core.config import get_settings
 from app.core.rate_limit import rate_limit
 from app.core.security import (
     create_access_token,
@@ -26,7 +27,9 @@ from app.schemas import (
     LoginRequest,
     LoginResponse,
     MessageOut,
+    RefreshRequest,
     RegisterRequest,
+    SessionModeOut,
     TotpEnableOut,
     TotpEnableRequest,
     TotpSetupOut,
@@ -42,6 +45,36 @@ def _client_meta(request: Request) -> tuple[str | None, str]:
     ip = request.client.host if request.client else None
     ua = request.headers.get("user-agent", "")
     return ip, ua
+
+
+def _set_auth_cookies(response: Response, access: str, refresh: str) -> None:
+    settings = get_settings()
+    if not settings.vbx_auth_cookies:
+        return
+    common = {
+        "httponly": True,
+        "samesite": "lax",
+        "secure": settings.vbx_cookie_secure,
+        "path": "/",
+    }
+    response.set_cookie(
+        settings.vbx_access_cookie,
+        access,
+        max_age=settings.access_token_expire_minutes * 60,
+        **common,
+    )
+    response.set_cookie(
+        settings.vbx_refresh_cookie,
+        refresh,
+        max_age=settings.refresh_token_expire_days * 86400,
+        **common,
+    )
+
+
+def _clear_auth_cookies(response: Response) -> None:
+    settings = get_settings()
+    response.delete_cookie(settings.vbx_access_cookie, path="/")
+    response.delete_cookie(settings.vbx_refresh_cookie, path="/")
 
 
 def _issue_tokens(db: Session, user: User, request: Request, device_label: str) -> LoginResponse:
@@ -62,6 +95,11 @@ def _issue_tokens(db: Session, user: User, request: Request, device_label: str) 
         refresh_token=create_refresh_token(str(user.id)),
         is_new_device=is_new,
     )
+
+
+@router.get("/session-mode", response_model=SessionModeOut)
+def session_mode() -> SessionModeOut:
+    return SessionModeOut(cookies=get_settings().vbx_auth_cookies)
 
 
 @router.post("/register", response_model=MessageOut)
@@ -109,7 +147,12 @@ def register(payload: RegisterRequest, request: Request, db: Session = Depends(g
 
 
 @router.post("/login", response_model=LoginResponse)
-def login(payload: LoginRequest, request: Request, db: Session = Depends(get_db)) -> LoginResponse:
+def login(
+    payload: LoginRequest,
+    request: Request,
+    response: Response,
+    db: Session = Depends(get_db),
+) -> LoginResponse:
     rate_limit(request, "login", limit=30, window=60)
     user = (
         db.query(User)
@@ -137,11 +180,19 @@ def login(payload: LoginRequest, request: Request, db: Session = Depends(get_db)
     if user.totp_enabled:
         return LoginResponse(requires_2fa=True, temp_token=create_temp_2fa_token(str(user.id)))
 
-    return _issue_tokens(db, user, request, payload.device_label)
+    tokens = _issue_tokens(db, user, request, payload.device_label)
+    if tokens.access_token and tokens.refresh_token:
+        _set_auth_cookies(response, tokens.access_token, tokens.refresh_token)
+    return tokens
 
 
 @router.post("/login/2fa", response_model=LoginResponse)
-def login_2fa(payload: TwoFAVerifyRequest, request: Request, db: Session = Depends(get_db)) -> LoginResponse:
+def login_2fa(
+    payload: TwoFAVerifyRequest,
+    request: Request,
+    response: Response,
+    db: Session = Depends(get_db),
+) -> LoginResponse:
     rate_limit(request, "login2fa", limit=30, window=60)
     data = decode_token(payload.temp_token)
     if not data or data.get("type") != "2fa_pending":
@@ -153,7 +204,6 @@ def login_2fa(payload: TwoFAVerifyRequest, request: Request, db: Session = Depen
     code = payload.code.strip().replace(" ", "")
     ok = pyotp.TOTP(user.totp_secret).verify(code, valid_window=1)
     if not ok:
-        # recovery codes
         for rc in db.query(RecoveryCode).filter_by(user_id=user.id, used_at=None).all():
             if verify_password(code, rc.code_hash):
                 rc.used_at = utcnow()
@@ -163,7 +213,51 @@ def login_2fa(payload: TwoFAVerifyRequest, request: Request, db: Session = Depen
     if not ok:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Неверный код 2FA")
 
-    return _issue_tokens(db, user, request, payload.device_label)
+    tokens = _issue_tokens(db, user, request, payload.device_label)
+    if tokens.access_token and tokens.refresh_token:
+        _set_auth_cookies(response, tokens.access_token, tokens.refresh_token)
+    return tokens
+
+
+@router.post("/refresh", response_model=LoginResponse)
+def refresh_tokens(
+    request: Request,
+    response: Response,
+    db: Session = Depends(get_db),
+    payload: RefreshRequest = Body(default_factory=RefreshRequest),
+) -> LoginResponse:
+    rate_limit(request, "refresh", limit=60, window=60)
+    settings = get_settings()
+    refresh_raw = (payload.refresh_token or "").strip()
+    if not refresh_raw and settings.vbx_auth_cookies:
+        refresh_raw = request.cookies.get(settings.vbx_refresh_cookie) or ""
+    if not refresh_raw or len(refresh_raw) < 10:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Недействительный refresh-токен")
+    data = decode_token(refresh_raw)
+    if not data or data.get("type") != "refresh":
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Недействительный refresh-токен")
+    try:
+        user_id = int(data["sub"])
+    except (KeyError, TypeError, ValueError):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Недействительный refresh-токен")
+    user = (
+        db.query(User)
+        .options(joinedload(User.roles))
+        .filter(User.id == user_id)
+        .one_or_none()
+    )
+    if not user or user.status != "active":
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Сессия недействительна")
+    access = create_access_token(str(user.id))
+    refresh = create_refresh_token(str(user.id))
+    _set_auth_cookies(response, access, refresh)
+    return LoginResponse(access_token=access, refresh_token=refresh)
+
+
+@router.post("/logout", response_model=MessageOut)
+def logout(response: Response) -> MessageOut:
+    _clear_auth_cookies(response)
+    return MessageOut(message="Выход выполнен")
 
 
 @router.get("/me", response_model=UserOut)

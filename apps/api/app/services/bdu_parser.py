@@ -8,6 +8,42 @@ from dataclasses import dataclass, field
 
 CVE_RE = re.compile(r"CVE-\d{4}-\d{4,}", re.I)
 BDU_RE = re.compile(r"BDU[:\-]\d{4}-\d+", re.I)
+URL_RE = re.compile(r"https?://[^\s,;]+", re.I)
+
+# Known FSTEC header names we map explicitly; the rest go to extra_json
+MAPPED_HEADERS = {
+    "идентификатор",
+    "наименование уязвимости",
+    "описание уязвимости",
+    "вендор по",
+    "название по",
+    "версия по",
+    "тип по",
+    "наименование ос и тип аппаратной платформы",
+    "класс уязвимости",
+    "дата выявления",
+    "cvss 2.0",
+    "cvss 3.0",
+    "cvss 4.0",
+    "уровень опасности уязвимости",
+    "возможные меры по устранению",
+    "статус уязвимости",
+    "наличие эксплойта",
+    "информация об устранении",
+    "ссылки на источники",
+    "идентификаторы других систем описаний уязвимости",
+    "прочая информация",
+    "связь с инцидентами иб",
+    "способ эксплуатации",
+    "способ устранения",
+    "дата публикации",
+    "дата последнего обновления",
+    "последствия эксплуатации уязвимости",
+    "состояние уязвимости",
+    "описание ошибки cwe",
+    "тип ошибки cwe",
+    "наименование",
+}
 
 
 @dataclass
@@ -25,6 +61,22 @@ class ParsedBdu:
     linked_cve_ids: list[str] = field(default_factory=list)
     identify_date: str = ""
     raw_xml: str = ""
+    software_versions: str = ""
+    software_type: str = ""
+    os_platform: str = ""
+    vuln_class: str = ""
+    cvss2_vector: str = ""
+    cvss3_vector: str = ""
+    cvss4_vector: str = ""
+    exploit_status: str = ""
+    fix_info: str = ""
+    exploit_method: str = ""
+    fix_method: str = ""
+    references: list[str] = field(default_factory=list)
+    published_date: str = ""
+    updated_date: str = ""
+    cwe_description: str = ""
+    extra: dict = field(default_factory=dict)
 
 
 def _text(el: ET.Element | None) -> str:
@@ -66,6 +118,128 @@ def _normalize_bdu_id(raw: str) -> str:
     return raw.upper().replace("BDU:", "BDU:")
 
 
+def _refs_from_text(raw: str) -> list[str]:
+    if not raw:
+        return []
+    found = URL_RE.findall(raw.replace("–", "-").replace("—", "-"))
+    # also split by newlines/commas for non-url leftovers kept as-is if look like urls
+    return list(dict.fromkeys(found))[:40]
+
+
+def parse_bdu_xlsx(content: bytes) -> list[ParsedBdu]:
+    """Parse FSTEC vullist.xlsx (sheet «Уязвимости», header on row 3)."""
+    import io
+
+    from openpyxl import load_workbook
+
+    wb = load_workbook(io.BytesIO(content), read_only=True, data_only=True)
+    sheet_name = "Уязвимости" if "Уязвимости" in wb.sheetnames else wb.sheetnames[0]
+    ws = wb[sheet_name]
+
+    header: list[str] = []
+    records: list[ParsedBdu] = []
+    for idx, row in enumerate(ws.iter_rows(values_only=True), start=1):
+        values = list(row)
+        if idx < 3:
+            continue
+        if idx == 3:
+            header = [str(c).strip() if c is not None else "" for c in values]
+            continue
+        if not values or values[0] is None:
+            continue
+
+        def col(*names: str) -> str:
+            for name in names:
+                needle = name.lower()
+                for i, h in enumerate(header):
+                    if h and h.lower() == needle and i < len(values) and values[i] is not None:
+                        return str(values[i]).strip()
+            return ""
+
+        bdu_raw = str(values[0]).strip() if values[0] is not None else ""
+        if not bdu_raw:
+            bdu_raw = col("Идентификатор")
+        bdu_id = _normalize_bdu_id(bdu_raw)
+        if not bdu_id or bdu_id == "BDU:":
+            continue
+
+        other_ids = col("Идентификаторы других систем описаний уязвимости")
+        cves = sorted({m.upper() for m in CVE_RE.findall(other_ids)})
+        refs_raw = col("Ссылки на источники")
+        refs = _refs_from_text(refs_raw)
+
+        extra: dict = {}
+        for i, h in enumerate(header):
+            if not h or i >= len(values):
+                continue
+            if i == 0:
+                continue
+            if h.lower() in MAPPED_HEADERS:
+                continue
+            if values[i] is None or str(values[i]).strip() == "":
+                continue
+            extra[h] = str(values[i]).strip()
+        # keep unmapped known leftovers that are useful
+        for label, key in (
+            ("Прочая информация", "other"),
+            ("Связь с инцидентами ИБ", "incidents"),
+            ("Последствия эксплуатации уязвимости", "impact"),
+        ):
+            val = col(label)
+            if val:
+                extra[key] = val
+
+        records.append(
+            ParsedBdu(
+                bdu_id=bdu_id,
+                name=col("Наименование уязвимости") or bdu_id,
+                description=col("Описание уязвимости"),
+                severity=col("Уровень опасности уязвимости"),
+                severity_level=None,
+                status=col("Статус уязвимости") or col("Состояние уязвимости"),
+                solution=col("Возможные меры по устранению"),
+                vendors=col("Вендор ПО"),
+                software_names=col("Название ПО"),
+                cwes=col("Тип ошибки CWE"),
+                linked_cve_ids=cves,
+                identify_date=col("Дата выявления") or col("Дата публикации"),
+                software_versions=col("Версия ПО"),
+                software_type=col("Тип ПО"),
+                os_platform=col("Наименование ОС и тип аппаратной платформы"),
+                vuln_class=col("Класс уязвимости"),
+                cvss2_vector=col("CVSS 2.0"),
+                cvss3_vector=col("CVSS 3.0"),
+                cvss4_vector=col("CVSS 4.0"),
+                exploit_status=col("Наличие эксплойта"),
+                fix_info=col("Информация об устранении"),
+                exploit_method=col("Способ эксплуатации"),
+                fix_method=col("Способ устранения"),
+                references=refs,
+                published_date=col("Дата публикации"),
+                updated_date=col("Дата последнего обновления"),
+                cwe_description=col("Описание ошибки CWE"),
+                extra=extra,
+                raw_xml=json.dumps(
+                    {
+                        "id": bdu_id,
+                        "refs_raw": refs_raw[:2000],
+                        "other_ids": other_ids[:2000],
+                    },
+                    ensure_ascii=False,
+                ),
+            )
+        )
+    wb.close()
+    return records
+
+
+def parse_bdu_file(content: bytes, *, filename: str = "") -> list[ParsedBdu]:
+    name = (filename or "").lower()
+    if name.endswith(".xlsx") or content[:2] == b"PK":
+        return parse_bdu_xlsx(content)
+    return parse_bdu_xml(content)
+
+
 def parse_bdu_xml(content: str | bytes) -> list[ParsedBdu]:
     if isinstance(content, bytes):
         content = content.decode("utf-8", errors="replace")
@@ -86,7 +260,6 @@ def parse_bdu_xml(content: str | bytes) -> list[ParsedBdu]:
             ["identifier", "id", "bdu_id", "bdu", "identificator"],
         )
         if not bdu_id:
-            # try attribute
             for attr in ("id", "identifier"):
                 if node.attrib.get(attr):
                     bdu_id = node.attrib[attr]

@@ -89,16 +89,36 @@ def test_local_vuln_create_and_search(client: TestClient):
             "severity": "HIGH",
             "vendor": "Acme",
             "product_name": "Agent",
+            "cvss_version": "3.1",
+            "cvss_score": 8.1,
+            "cvss_vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:N",
+            "is_remote": True,
+            "cwes": ["CWE-79"],
+            "linked_bdu_ids": ["BDU:2024-00001"],
+            "discovery_source": "red-team",
         },
     )
     assert r.status_code == 200, r.text
     body = r.json()
     assert body["id"].startswith("VBX-")
     assert body["severity"] == "HIGH"
+    assert body["cvss_score"] == 8.1
+    assert body["is_remote"] is True
+    assert body["cwes"] == ["CWE-79"]
 
     detail = client.get(f"/local/{body['id']}", headers=headers)
     assert detail.status_code == 200
     assert detail.json()["title"] == "Внутренняя уязвимость теста"
+    assert detail.json()["linked_bdu_ids"] == ["BDU:2024-00001"]
+
+    patched = client.patch(
+        f"/local/{body['id']}",
+        headers=headers,
+        json={"notes": "updated by red team", "cvss_score": 8.8},
+    )
+    assert patched.status_code == 200, patched.text
+    assert patched.json()["notes"] == "updated by red team"
+    assert patched.json()["cvss_score"] == 8.8
 
     search = client.get("/search", headers=headers, params={"q": body["id"]})
     assert search.status_code == 200

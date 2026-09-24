@@ -107,6 +107,11 @@ export function CvssScoringDetails({ score, severity, version, vector, isRemote 
   const parsed: ParsedCvss | null = parseCvssVector(vector);
   const weights = metricWeights(parsed);
   const ver = version || parsed?.version || "3.1";
+  const remoteFromVector =
+    parsed?.metrics?.AV === "N" ||
+    (typeof vector === "string" && /(?:^|\/)AV:N(?:\/|$)/i.test(vector));
+  const remote =
+    isRemote === true || remoteFromVector ? true : isRemote === false && !remoteFromVector ? false : isRemote;
 
   return (
     <div className="space-y-4" data-testid="scoring-details">
@@ -130,8 +135,8 @@ export function CvssScoringDetails({ score, severity, version, vector, isRemote 
           </div>
           <div className="text-right text-xs text-muted">
             <div>Remotely exploitable</div>
-            <div className={`mt-0.5 font-semibold ${isRemote ? "text-warn" : "text-muted"}`}>
-              {isRemote == null ? "—" : isRemote ? "Yes" : "No"}
+            <div className={`mt-0.5 font-semibold ${remote ? "text-warn" : "text-muted"}`}>
+              {remote == null ? "—" : remote ? "Yes" : "No"}
             </div>
           </div>
         </div>

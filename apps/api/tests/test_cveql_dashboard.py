@@ -144,6 +144,13 @@ def test_dashboard_aggregates(client):
     assert body["kpis"]["cves_today"] >= 1
     assert "activity" in body
     assert "sync_health" in body
+    assert "attention_feed" in body
+    assert body["attention_window_days"] == 30
+    assert "attention_epss_min" in body
+    for hit in body["attention_feed"]:
+        assert hit["id"]
+        assert hit["href"].startswith("/vuln/")
+        assert hit.get("reason") in ("watchlist", "kev_new", "kev", "epss", "critical", "")
 
 
 def test_epss_overview(client):

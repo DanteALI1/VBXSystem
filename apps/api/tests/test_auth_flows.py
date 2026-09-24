@@ -84,8 +84,16 @@ def test_admin_login_and_approve(client):
     assert login.status_code == 200
     body = login.json()
     assert body.get("access_token")
+    assert body.get("refresh_token")
     assert body.get("requires_2fa") is False
     token = body["access_token"]
+
+    refreshed = client.post("/auth/refresh", json={"refresh_token": body["refresh_token"]})
+    assert refreshed.status_code == 200, refreshed.text
+    assert refreshed.json()["access_token"]
+    assert refreshed.json()["refresh_token"]
+    bad = client.post("/auth/refresh", json={"refresh_token": "not-a-valid-refresh-token-value"})
+    assert bad.status_code == 401
 
     client.post(
         "/auth/register",

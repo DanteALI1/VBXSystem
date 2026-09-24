@@ -9,7 +9,7 @@ from app.db import get_db
 from app.models import SyncRun, User
 from app.schemas import EpssOverviewOut, SyncStartOut
 from app.services.epss_service import get_epss_overview
-from app.services.sync_jobs import enqueue_sync, process_sync_run
+from app.services.sync_jobs import enqueue_sync
 
 router = APIRouter(prefix="/epss", tags=["epss"])
 
@@ -29,9 +29,7 @@ def epss_sync(
     user: User = Depends(require_permissions("vuln:sync")),
 ) -> SyncStartOut:
     run = enqueue_sync(db, "epss", created_by=user.id)
-    try:
-        process_sync_run(db, run.id)
-    except Exception:
-        pass
+    # Enqueue only — worker drains (same pattern as NVD/BDU)
+    _ = user
     run = db.get(SyncRun, run.id)
-    return SyncStartOut(run=_sync_out(run), message="Синхронизация EPSS запущена")
+    return SyncStartOut(run=_sync_out(run), message="Синхронизация EPSS поставлена в очередь worker")

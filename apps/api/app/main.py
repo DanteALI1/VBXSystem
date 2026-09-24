@@ -24,6 +24,7 @@ from app.api import (
     system_routes,
     tickets_routes,
     users_routes,
+    watchlist_routes,
     xdb_routes,
 )
 from app.core.config import get_settings
@@ -80,6 +81,7 @@ def create_app() -> FastAPI:
     app.include_router(integrations_routes.router)
     app.include_router(api_keys_routes.router)
     app.include_router(tickets_routes.router)
+    app.include_router(watchlist_routes.router)
     return app
 
 

@@ -32,20 +32,28 @@
 
 ## Быстрый старт
 
+Подробно для коллеги после `git pull`: [docs/ops/LOCAL_COMPOSE.md](docs/ops/LOCAL_COMPOSE.md).
+
 ```bash
 cp .env.example .env
+# задайте VBX_SECRET_KEY, пароли Postgres/Redis/Admin
 docker compose up -d --build
 ```
 
 - UI: http://localhost/login (`VBX_HTTP_PORT`, по умолчанию `80`)
 - Супер‑админ: `VBX_ADMIN_*` из `.env`
+- После старта API сам применяет Alembic и seed (в т.ч. шаблоны dashboard)
 
 ```bash
 curl -s http://localhost:8000/health
 curl -s http://localhost:8000/ready
-bash deploy/redos/validate-install.sh
+bash deploy/redos/validate-install.sh   # Linux / РЕД ОС
 ```
 
+**Dashboard:** готовые шаблоны (Classic / Analyst / Ops / Compact), DnD-редактор, каталог виджетов с превью, org watchlist.  
+KPI «CVE сегодня» = публикации NVD за календарный день, не размер зеркала (см. виджет «Объём каталога»).
+
+**Профиль:** `VBX_PROFILE=dev` (EPSS mock) · `prod` → live EPSS. Опционально `VBX_AUTH_COOKIES=true` (HttpOnly через Next BFF).
 ---
 
 ## Видео‑превью
@@ -160,6 +168,7 @@ sudo less /opt/vbx/VBX_INSTALL_INFO.txt
 | Документ | Содержание |
 |----------|------------|
 | [INSTALL_REDOS.md](docs/ops/INSTALL_REDOS.md) | Установка с нуля |
+| [LOCAL_COMPOSE.md](docs/ops/LOCAL_COMPOSE.md) | Docker Compose после git clone/pull |
 | [BACKUP.md](docs/ops/BACKUP.md) | `scripts/backup.sh` / `restore.sh` |
 | [UPGRADE.md](docs/ops/UPGRADE.md) | Обновление релиза |
 | [SECURITY_CHECKLIST.md](docs/ops/SECURITY_CHECKLIST.md) | Hardening |
@@ -171,10 +180,11 @@ sudo less /opt/vbx/VBX_INSTALL_INFO.txt
 ## Структура репозитория
 
 ```
-apps/api           FastAPI + Alembic + RBAC seed
-apps/web           Next.js (App Router), UI в стилистике cvefeed
+apps/api           FastAPI + Alembic + worker + pytest
+apps/web           Next.js (App Router), dashboard builder
 deploy/redos       установщик РЕД ОС + validate-install.sh
-scripts/           backup / restore
+scripts/           backup / restore / bridge helpers
+docs/ops/          INSTALL, BACKUP, LOCAL_COMPOSE, …
 docs/screenshots/  галерея UI
 docs/demo/         видео-превью (GIF + MP4)
 e2e/               Playwright (+ capture-gallery)
@@ -193,5 +203,5 @@ npm install && npx playwright install chromium && npm run test:e2e
 
 ## Статус
 
-Волны **W0–W9** закрыты (W9 — обогащение UI/ops из VULNEX).  
-План W10–W11: [docs/ENRICHMENT_FROM_VULNEX.md](docs/ENRICHMENT_FROM_VULNEX.md) · [docs/STATUS.md](docs/STATUS.md).
+Волны **W0–W9** закрыты. Актуальные gaps и фичи (dashboard templates, watchlist, FTS, cookies flag): [docs/STATUS.md](docs/STATUS.md).  
+План W10–W11: [docs/ENRICHMENT_FROM_VULNEX.md](docs/ENRICHMENT_FROM_VULNEX.md).

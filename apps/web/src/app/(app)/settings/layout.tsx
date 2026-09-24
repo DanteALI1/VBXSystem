@@ -6,9 +6,10 @@ import { useAuth } from "@/lib/useAuth";
 
 const LINKS = [
   { href: "/settings/profile", label: "Профиль" },
+  { href: "/settings/watchlist", label: "Watchlist" },
   { href: "/settings/notifications", label: "Уведомления" },
   { href: "/settings/users", label: "Пользователи", superAdmin: true },
-  { href: "/settings/security", label: "Безопасность", admin: true },
+  { href: "/settings/security", label: "Безопасность", superAdmin: true },
   { href: "/settings/branding", label: "Брендинг", admin: true },
   { href: "/settings/database", label: "База данных", admin: true },
   { href: "/settings/system", label: "Система", admin: true },

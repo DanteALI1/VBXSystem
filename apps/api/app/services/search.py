@@ -1,3 +1,5 @@
+"""Vulnerability search — SQL pagination; Postgres uses pg_trgm when available."""
+
 from __future__ import annotations
 
 import json
@@ -9,6 +11,20 @@ from sqlalchemy.orm import Session
 from app.models import BduRecord, CisaKev, CveBduLink, CveRecord, EpssScore, LocalVuln
 from app.services.local_vulns import local_to_search_hit
 from app.services.xdb import exploits_for_cve
+
+
+def _is_postgres(db: Session) -> bool:
+    return db.get_bind().dialect.name == "postgresql"
+
+
+def _text_match(db: Session, *columns, q: str):
+    """ILIKE always; on Postgres also similarity via pg_trgm for longer queries."""
+    like = f"%{q}%"
+    clauses = [col.ilike(like) for col in columns]
+    if _is_postgres(db) and len(q) >= 3:
+        for col in columns:
+            clauses.append(func.similarity(col, q) > 0.15)
+    return or_(*clauses)
 
 
 def _parse_json_list(raw: str | None) -> list:
@@ -34,12 +50,7 @@ def _date_preset_start(preset: str | None) -> datetime | None:
         "this_week": today - timedelta(days=today.weekday()),
         "last_week": today - timedelta(days=today.weekday() + 7),
     }
-    start = mapping.get(preset)
-    if preset == "yesterday":
-        return start
-    if preset == "last_week":
-        return start
-    return start
+    return mapping.get(preset)
 
 
 def _date_preset_end(preset: str | None) -> datetime | None:
@@ -54,13 +65,57 @@ def _date_preset_end(preset: str | None) -> datetime | None:
     return None
 
 
-def _ts(value: str | None) -> float:
-    if not value:
-        return 0.0
-    try:
-        return datetime.fromisoformat(value.replace("Z", "+00:00")).timestamp()
-    except ValueError:
-        return 0.0
+def _cve_to_hit(c: CveRecord, *, has_bdu: bool, epss: dict | None) -> dict:
+    return {
+        "kind": "cve",
+        "id": c.id,
+        "title": c.title or c.id,
+        "description": (c.description or "")[:280],
+        "severity": c.cvss_severity or "",
+        "cvss_score": c.cvss_score,
+        "published_at": c.published_at.isoformat() if c.published_at else None,
+        "is_cisa_kev": bool(c.is_cisa_kev),
+        "has_bdu": has_bdu,
+        "epss": epss,
+        "href": f"/vuln/{c.id}",
+    }
+
+
+def _bdu_to_hit(b: BduRecord) -> dict:
+    return {
+        "kind": "bdu",
+        "id": b.id,
+        "title": b.name or b.id,
+        "description": (b.description or "")[:280],
+        "severity": b.severity or "",
+        "published_at": b.identify_date or None,
+        "is_cisa_kev": False,
+        "has_bdu": True,
+        "epss": None,
+        "href": f"/bdu/{b.id}",
+    }
+
+
+def _enrich_cve_hits(db: Session, rows: list[CveRecord]) -> list[dict]:
+    if not rows:
+        return []
+    cve_ids = [c.id for c in rows]
+    bdu_link_set = {
+        row.cve_id
+        for row in db.query(CveBduLink.cve_id).filter(CveBduLink.cve_id.in_(cve_ids)).all()
+    }
+    epss_map: dict[str, dict] = {}
+    for e in (
+        db.query(EpssScore)
+        .filter(EpssScore.cve_id.in_(cve_ids))
+        .order_by(EpssScore.id.desc())
+        .all()
+    ):
+        if e.cve_id not in epss_map:
+            epss_map[e.cve_id] = {"score": e.score, "percentile": e.percentile}
+    return [
+        _cve_to_hit(c, has_bdu=c.id in bdu_link_set, epss=epss_map.get(c.id)) for c in rows
+    ]
 
 
 def search_vulnerabilities(
@@ -75,6 +130,7 @@ def search_vulnerabilities(
     page: int = 1,
     page_size: int = 20,
 ) -> dict:
+    """Search with accurate totals and SQL LIMIT/OFFSET (CVE → BDU → Local)."""
     page = max(1, page)
     page_size = min(max(1, page_size), 100)
     q = (q or "").strip()
@@ -84,13 +140,14 @@ def search_vulnerabilities(
 
     cve_query = db.query(CveRecord)
     if q:
-        like = f"%{q}%"
         cve_query = cve_query.filter(
-            or_(
-                CveRecord.id.ilike(like),
-                CveRecord.title.ilike(like),
-                CveRecord.description.ilike(like),
-                CveRecord.products.ilike(like),
+            _text_match(
+                db,
+                CveRecord.id,
+                CveRecord.title,
+                CveRecord.description,
+                CveRecord.products,
+                q=q,
             )
         )
     if severity:
@@ -105,154 +162,120 @@ def search_vulnerabilities(
     if date_to is not None:
         cve_query = cve_query.filter(CveRecord.published_at < date_to)
 
-    if sort == "cvss":
-        cve_query = cve_query.order_by(CveRecord.cvss_score.desc().nullslast(), CveRecord.id.desc())
-    elif sort == "epss":
-        # Order applied after merge using epss_map; keep published as DB default
-        cve_query = cve_query.order_by(CveRecord.published_at.desc().nullslast(), CveRecord.id.desc())
-    else:
-        cve_query = cve_query.order_by(CveRecord.published_at.desc().nullslast(), CveRecord.id.desc())
+    # Build ordered CVE query for fetch (count used separate un-ordered clones)
+    def _order_cve(q):
+        if sort == "cvss":
+            return q.order_by(CveRecord.cvss_score.desc().nullslast(), CveRecord.id.desc())
+        if sort == "id":
+            return q.order_by(CveRecord.id.asc())
+        # published + epss: KEV-first, newest; epss score applied only among loaded page via SQL join optional
+        if sort == "epss":
+            return q.order_by(CveRecord.published_at.desc().nullslast(), CveRecord.id.desc())
+        return q.order_by(
+            CveRecord.is_cisa_kev.desc(),
+            CveRecord.published_at.desc().nullslast(),
+            CveRecord.id.desc(),
+        )
 
-    # BDU standalone search (skip when kev_only — BDU alone isn't KEV)
-    bdu_items: list[dict] = []
-    if not kev_only:
-        bdu_query = db.query(BduRecord).filter(BduRecord.is_standalone.is_(True))
+    cve_base = cve_query
+    cve_total = cve_base.count()
+    cve_query = _order_cve(cve_base)
+
+    include_bdu = not kev_only
+    include_local = not kev_only and not has_bdu
+
+    bdu_query = None
+    bdu_total = 0
+    if include_bdu:
+        bdu_base = db.query(BduRecord).filter(BduRecord.is_standalone.is_(True))
         if q:
-            like = f"%{q}%"
-            bdu_query = bdu_query.filter(
-                or_(
-                    BduRecord.id.ilike(like),
-                    BduRecord.name.ilike(like),
-                    BduRecord.description.ilike(like),
-                    BduRecord.vendors.ilike(like),
-                    BduRecord.software_names.ilike(like),
+            bdu_base = bdu_base.filter(
+                _text_match(
+                    db,
+                    BduRecord.id,
+                    BduRecord.name,
+                    BduRecord.description,
+                    BduRecord.vendors,
+                    BduRecord.software_names,
+                    q=q,
                 )
             )
         if severity:
-            bdu_query = bdu_query.filter(BduRecord.severity.ilike(f"%{severity}%"))
-        bdu_rows = bdu_query.order_by(BduRecord.updated_at.desc()).limit(200).all()
-        for b in bdu_rows:
-            bdu_items.append(
-                {
-                    "kind": "bdu",
-                    "id": b.id,
-                    "title": b.name or b.id,
-                    "description": (b.description or "")[:280],
-                    "severity": b.severity or "",
-                    "published_at": b.identify_date or None,
-                    "is_cisa_kev": False,
-                    "has_bdu": True,
-                    "epss": None,
-                    "href": f"/bdu/{b.id}",
-                }
-            )
+            bdu_base = bdu_base.filter(BduRecord.severity.ilike(f"%{severity}%"))
+        bdu_total = bdu_base.count()
+        bdu_query = bdu_base.order_by(BduRecord.updated_at.desc(), BduRecord.id.desc())
 
-    # Collect CVE page with badges
-    # For mixed list: fetch enough CVEs then merge with BDU and paginate in Python for W3 simplicity
-    cve_rows = cve_query.limit(500).all()
-    cve_ids = [c.id for c in cve_rows]
-    bdu_link_set = set()
-    if cve_ids:
-        bdu_link_set = {
-            row.cve_id
-            for row in db.query(CveBduLink.cve_id).filter(CveBduLink.cve_id.in_(cve_ids)).all()
-        }
-    epss_map = {}
-    if cve_ids:
-        for e in (
-            db.query(EpssScore)
-            .filter(EpssScore.cve_id.in_(cve_ids))
-            .order_by(EpssScore.id.desc())
-            .all()
-        ):
-            if e.cve_id not in epss_map:
-                epss_map[e.cve_id] = {"score": e.score, "percentile": e.percentile}
-
-    cve_items = []
-    for c in cve_rows:
-        cve_items.append(
-            {
-                "kind": "cve",
-                "id": c.id,
-                "title": c.title or c.id,
-                "description": (c.description or "")[:280],
-                "severity": c.cvss_severity or "",
-                "cvss_score": c.cvss_score,
-                "published_at": c.published_at.isoformat() if c.published_at else None,
-                "is_cisa_kev": bool(c.is_cisa_kev),
-                "has_bdu": c.id in bdu_link_set,
-                "epss": epss_map.get(c.id),
-                "href": f"/vuln/{c.id}",
-            }
-        )
-
-    # Local vulns (skip when kev/has_bdu-only filters)
-    local_items: list[dict] = []
-    if not kev_only and not has_bdu:
-        local_q = db.query(LocalVuln)
+    local_query = None
+    local_total = 0
+    if include_local:
+        local_base = db.query(LocalVuln)
         if q:
-            like = f"%{q}%"
-            local_q = local_q.filter(
-                or_(
-                    LocalVuln.id.ilike(like),
-                    LocalVuln.title.ilike(like),
-                    LocalVuln.description.ilike(like),
-                    LocalVuln.vendor.ilike(like),
-                    LocalVuln.product_name.ilike(like),
+            local_base = local_base.filter(
+                _text_match(
+                    db,
+                    LocalVuln.id,
+                    LocalVuln.title,
+                    LocalVuln.description,
+                    LocalVuln.vendor,
+                    LocalVuln.product_name,
+                    q=q,
                 )
             )
         if severity:
-            local_q = local_q.filter(func.upper(LocalVuln.severity) == severity.upper())
-        for row in local_q.order_by(LocalVuln.created_at.desc()).limit(200).all():
-            local_items.append(local_to_search_hit(row))
+            local_base = local_base.filter(func.upper(LocalVuln.severity) == severity.upper())
+        local_total = local_base.count()
+        local_query = local_base.order_by(LocalVuln.created_at.desc(), LocalVuln.id.desc())
 
-    # Merge: KEV CVEs first within published ordering already applied; insert BDU after CVEs matching q
-    if has_bdu:
-        # already filtered CVEs; still include standalone BDU
-        mixed = cve_items + bdu_items
-    elif severity or date_preset:
-        mixed = cve_items + ([] if severity or date_preset else bdu_items)
-        # if severity/date filters are CVE-centric, still allow BDU when q matches and no severity conflict
-        if q and not kev_only:
-            mixed = cve_items + bdu_items + local_items
-        else:
-            mixed = cve_items + local_items
+    total = cve_total + bdu_total + local_total
+
+    # Sequential window: CVE block, then BDU, then Local (stable contract)
+    offset = (page - 1) * page_size
+    need = page_size
+    results: list[dict] = []
+
+    if need > 0 and offset < cve_total:
+        take = min(need, cve_total - offset)
+        rows = cve_query.offset(offset).limit(take).all()
+        hits = _enrich_cve_hits(db, rows)
+        if sort == "epss":
+            hits.sort(
+                key=lambda x: (
+                    (x.get("epss") or {}).get("score") is not None,
+                    (x.get("epss") or {}).get("score") or 0,
+                ),
+                reverse=True,
+            )
+        results.extend(hits)
+        need -= len(rows)
+        offset = 0
     else:
-        mixed = cve_items + bdu_items + local_items
+        offset = max(0, offset - cve_total)
 
-    if sort == "cvss":
-        mixed.sort(key=lambda x: (x.get("cvss_score") is not None, x.get("cvss_score") or 0), reverse=True)
-    elif sort == "epss":
-        mixed.sort(
-            key=lambda x: (
-                (x.get("epss") or {}).get("score") is not None,
-                (x.get("epss") or {}).get("score") or 0,
-            ),
-            reverse=True,
-        )
-    elif sort == "id":
-        mixed.sort(key=lambda x: x["id"])
-    else:
-        # published desc; KEV rows bubble up for visual priority
-        mixed.sort(
-            key=lambda x: (0 if x.get("is_cisa_kev") else 1, -_ts(x.get("published_at"))),
-        )
+    if need > 0 and bdu_query is not None and offset < bdu_total:
+        take = min(need, bdu_total - offset)
+        brows = bdu_query.offset(offset).limit(take).all()
+        results.extend(_bdu_to_hit(b) for b in brows)
+        need -= len(brows)
+        offset = 0
+    elif bdu_query is not None:
+        offset = max(0, offset - bdu_total)
 
-    total = len(mixed)
-    start = (page - 1) * page_size
-    end = start + page_size
+    if need > 0 and local_query is not None and offset < local_total:
+        take = min(need, local_total - offset)
+        lrows = local_query.offset(offset).limit(take).all()
+        results.extend(local_to_search_hit(r) for r in lrows)
+
     return {
         "total": total,
         "page": page,
         "page_size": page_size,
-        "results": mixed[start:end],
+        "results": results,
     }
 
 
 def get_cve_detail(db: Session, cve_id: str) -> dict | None:
     cve = db.get(CveRecord, cve_id.upper())
     if not cve:
-        # try exact
         cve = db.get(CveRecord, cve_id)
     if not cve:
         return None
@@ -322,17 +345,22 @@ def get_cve_detail(db: Session, cve_id: str) -> dict | None:
 
 def get_bdu_detail(db: Session, bdu_id: str) -> dict | None:
     bid = bdu_id if bdu_id.upper().startswith("BDU:") else bdu_id
-    # normalize
     if not bid.upper().startswith("BDU"):
         bid = f"BDU:{bid}"
     bid = bid.replace("BDU-", "BDU:")
     b = db.get(BduRecord, bid) or db.get(BduRecord, bdu_id)
     if not b:
-        # case-insensitive fallback
         b = db.query(BduRecord).filter(func.upper(BduRecord.id) == bid.upper()).one_or_none()
     if not b:
         return None
     linked = _parse_json_list(b.linked_cve_ids)
+    refs = _parse_json_list(getattr(b, "references_json", None) or "[]")
+    try:
+        extra = json.loads(getattr(b, "extra_json", None) or "{}")
+        if not isinstance(extra, dict):
+            extra = {}
+    except json.JSONDecodeError:
+        extra = {}
     return {
         "id": b.id,
         "name": b.name,
@@ -343,6 +371,22 @@ def get_bdu_detail(db: Session, bdu_id: str) -> dict | None:
         "solution": b.solution,
         "vendors": b.vendors,
         "software_names": b.software_names,
+        "software_versions": getattr(b, "software_versions", "") or "",
+        "software_type": getattr(b, "software_type", "") or "",
+        "os_platform": getattr(b, "os_platform", "") or "",
+        "vuln_class": getattr(b, "vuln_class", "") or "",
+        "cvss2_vector": getattr(b, "cvss2_vector", "") or "",
+        "cvss3_vector": getattr(b, "cvss3_vector", "") or "",
+        "cvss4_vector": getattr(b, "cvss4_vector", "") or "",
+        "exploit_status": getattr(b, "exploit_status", "") or "",
+        "fix_info": getattr(b, "fix_info", "") or "",
+        "exploit_method": getattr(b, "exploit_method", "") or "",
+        "fix_method": getattr(b, "fix_method", "") or "",
+        "references": refs if isinstance(refs, list) else [],
+        "published_date": getattr(b, "published_date", "") or "",
+        "updated_date": getattr(b, "updated_date", "") or "",
+        "cwe_description": getattr(b, "cwe_description", "") or "",
+        "extra": extra,
         "cwes": b.cwes,
         "linked_cve_ids": linked,
         "identify_date": b.identify_date,

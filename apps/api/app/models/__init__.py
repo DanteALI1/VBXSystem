@@ -188,11 +188,11 @@ class BduRecord(Base):
     __tablename__ = "bdu_records"
 
     id: Mapped[str] = mapped_column(String(64), primary_key=True)  # BDU:YYYY-NNNNN
-    name: Mapped[str] = mapped_column(String(512), default="")
+    name: Mapped[str] = mapped_column(Text, default="")
     description: Mapped[str] = mapped_column(Text, default="")
-    severity: Mapped[str] = mapped_column(String(64), default="")
+    severity: Mapped[str] = mapped_column(Text, default="")
     severity_level: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    status: Mapped[str] = mapped_column(String(64), default="")
+    status: Mapped[str] = mapped_column(Text, default="")
     solution: Mapped[str] = mapped_column(Text, default="")
     vendors: Mapped[str] = mapped_column(Text, default="")
     software_names: Mapped[str] = mapped_column(Text, default="")
@@ -201,6 +201,22 @@ class BduRecord(Base):
     identify_date: Mapped[str] = mapped_column(String(64), default="")
     is_standalone: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
     raw_xml: Mapped[str] = mapped_column(Text, default="")
+    software_versions: Mapped[str] = mapped_column(Text, default="")
+    software_type: Mapped[str] = mapped_column(Text, default="")
+    os_platform: Mapped[str] = mapped_column(Text, default="")
+    vuln_class: Mapped[str] = mapped_column(Text, default="")
+    cvss2_vector: Mapped[str] = mapped_column(Text, default="")
+    cvss3_vector: Mapped[str] = mapped_column(Text, default="")
+    cvss4_vector: Mapped[str] = mapped_column(Text, default="")
+    exploit_status: Mapped[str] = mapped_column(Text, default="")
+    fix_info: Mapped[str] = mapped_column(Text, default="")
+    exploit_method: Mapped[str] = mapped_column(Text, default="")
+    fix_method: Mapped[str] = mapped_column(Text, default="")
+    references_json: Mapped[str] = mapped_column(Text, default="[]")
+    published_date: Mapped[str] = mapped_column(String(64), default="")
+    updated_date: Mapped[str] = mapped_column(String(64), default="")
+    cwe_description: Mapped[str] = mapped_column(Text, default="")
+    extra_json: Mapped[str] = mapped_column(Text, default="{}")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
 
@@ -238,6 +254,50 @@ class EpssScore(Base):
     scored_at: Mapped[str] = mapped_column(String(32), default="")
 
 
+class OrgWatchlistEntry(Base):
+    """Org-shared (by User.organization) or personal watchlist rule."""
+
+    __tablename__ = "org_watchlist_entries"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    org_key: Mapped[str] = mapped_column(String(255), default="", index=True)
+    user_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
+    kind: Mapped[str] = mapped_column(String(32), default="cve")  # cve | vendor | product
+    value: Mapped[str] = mapped_column(String(512), default="")
+    created_by: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class DashboardLayout(Base):
+    """System or personal dashboard template (widget grid JSON)."""
+
+    __tablename__ = "dashboard_layouts"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=True, index=True
+    )
+    slug: Mapped[str] = mapped_column(String(64), default="", index=True)
+    name: Mapped[str] = mapped_column(String(255), default="")
+    is_system: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
+    layout_json: Mapped[str] = mapped_column(Text, default="{}")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow
+    )
+
+
+class UserDashboardPrefs(Base):
+    __tablename__ = "user_dashboard_prefs"
+
+    user_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("users.id", ondelete="CASCADE"), primary_key=True
+    )
+    active_layout_id: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("dashboard_layouts.id", ondelete="SET NULL"), nullable=True
+    )
+
+
 class SyncRun(Base):
     __tablename__ = "sync_runs"
 
@@ -250,6 +310,8 @@ class SyncRun(Base):
     stats_json: Mapped[str] = mapped_column(Text, default="{}")
     error: Mapped[str] = mapped_column(Text, default="")
     created_by: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    lease_owner: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    leased_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
@@ -291,6 +353,20 @@ class LocalVuln(Base):
     product_name: Mapped[str] = mapped_column(Text, default="")
     remediation: Mapped[str] = mapped_column(Text, default="")
     linked_cve_ids: Mapped[str] = mapped_column(Text, default="[]")
+    cvss_version: Mapped[str] = mapped_column(String(16), default="")
+    cvss_score: Mapped[float | None] = mapped_column(nullable=True)
+    cvss_severity: Mapped[str] = mapped_column(String(32), default="")
+    cvss_vector: Mapped[str] = mapped_column(String(256), default="")
+    is_remote: Mapped[bool] = mapped_column(Boolean, default=False)
+    cwes: Mapped[str] = mapped_column(Text, default="[]")
+    products: Mapped[str] = mapped_column(Text, default="[]")
+    references_json: Mapped[str] = mapped_column(Text, default="[]")
+    published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    modified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    analysis_status: Mapped[str] = mapped_column(String(64), default="")
+    linked_bdu_ids: Mapped[str] = mapped_column(Text, default="[]")
+    discovery_source: Mapped[str] = mapped_column(String(128), default="")
+    notes: Mapped[str] = mapped_column(Text, default="")
     created_by_id: Mapped[int | None] = mapped_column(
         Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )

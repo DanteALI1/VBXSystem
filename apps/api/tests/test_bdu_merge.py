@@ -4,13 +4,14 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from app.models import Base, BduRecord, CveBduLink, CveRecord
-from app.services.bdu_import import import_bdu_xml_content
-from app.services.bdu_parser import parse_bdu_xml, parsed_to_standalone
+from app.services.bdu_import import import_bdu_content, import_bdu_xml_content
+from app.services.bdu_parser import parse_bdu_file, parse_bdu_xml, parsed_to_standalone
 from app.services.nvd_sync import seed_mock_cves
 from app.services.kev_sync import seed_mock_kev
 
 
 FIXTURE = Path(__file__).parent / "fixtures" / "sample_bdu.xml"
+FIXTURE_XLSX = Path(__file__).parent / "fixtures" / "sample_bdu.xlsx"
 
 
 def _session():
@@ -60,3 +61,25 @@ def test_bdu_reimport_idempotent():
     stats2 = import_bdu_xml_content(db, content)
     assert stats2["updated"] == 2
     assert db.query(BduRecord).count() == 2
+
+
+def test_parse_and_import_bdu_xlsx():
+    records = parse_bdu_file(FIXTURE_XLSX.read_bytes(), filename="sample_bdu.xlsx")
+    assert len(records) == 2
+    by_id = {r.bdu_id: r for r in records}
+    assert "CVE-2024-0001" in by_id["BDU:2024-00001"].linked_cve_ids
+    assert parsed_to_standalone(by_id["BDU:2024-00002"]) is True
+
+    db = _session()
+    seed_mock_cves(db)
+    stats = import_bdu_content(db, FIXTURE_XLSX.read_bytes(), filename="sample_bdu.xlsx")
+    assert stats["parsed"] == 2
+    assert stats["format"] == "xlsx"
+    row = db.get(BduRecord, "BDU:2024-00001")
+    alone = db.get(BduRecord, "BDU:2024-00002")
+    assert row is not None and alone is not None
+    # Enrichment columns present after 0009 (may be empty on minimal fixture)
+    assert hasattr(row, "software_versions")
+    assert hasattr(row, "cvss3_vector")
+    assert hasattr(row, "references_json")
+    assert alone.references_json is not None

@@ -17,6 +17,24 @@
 
 Last updated: 2026-09-24
 
+## Known gaps (honest status)
+| Area | Reality | Notes |
+|------|---------|-------|
+| NVD mirror | **OK** (full catalog sync) | Resume from `nvd_mirror_cursor` on reclaim; auto-update scheduler **not** enabled (dev) |
+| BDU | **OK** XLSX + rich card | Download-by-URL runs in worker |
+| Search | **PARTIAL** | SQL pagination + `pg_trgm` GIN on Postgres; SQLite tests use ILIKE |
+| EPSS | **PARTIAL** | Mock when `VBX_PROFILE=dev` or `VBX_EPSS_MOCK=true`; live FIRST CSV when profile=prod (unless mock forced) |
+| Attention feed | **OK** v2 | watchlist → KEV 7д → KEV → EPSS≥порог → Critical≥9.0 |
+| Dashboard templates | **OK** | Classic / Analyst / Ops / Compact + personal DnD; виджет-каталог с превью |
+| Org watchlist | **OK** | `/watchlist` + Settings → Watchlist |
+| KPI semantics | **OK** | «CVE сегодня/неделя» = `published_at` NVD, не размер зеркала |
+| Auto-update | **OFF** | Setting exists; worker does not schedule (intentional during development) |
+| Auth session | **PARTIAL** | Bearer+localStorage default; `VBX_AUTH_COOKIES=true` → HttpOnly via Next BFF |
+| LDAP/SSO/mTLS | **STAGING** | Config/UI + honesty badges; not full live IdP / app-level mTLS |
+| XDB live connector | **501** | CSV/JSON import works |
+| Attachments API | pending | Model exists |
+| W10 wizard / W11 SLA | PENDING | As table above |
+
 ## Install UX (interactive)
 - `deploy/redos/install.sh` — мастер: сеть → каталоги → PostgreSQL → Redis → SECRET_KEY → org → Admin (профиль; пароль **всегда** генерируется в конце) → доп. УЗ (имя+пароль) → NVD → firewall
 - После up: sync пароля Admin в БД → `POST /auth/login` проверка → финальный отчёт с Admin/PG/Redis

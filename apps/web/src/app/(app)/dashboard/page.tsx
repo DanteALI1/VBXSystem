@@ -1,84 +1,48 @@
 "use client";
 
-import Link from "next/link";
-import { useCallback, useEffect, useState } from "react";
-import { Activity, AlertTriangle, Database, RefreshCw, ShieldAlert } from "lucide-react";
+import dynamic from "next/dynamic";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { Copy, LayoutTemplate, Pencil, Plus, RefreshCw, Save, Trash2, X } from "lucide-react";
 import { api } from "@/lib/api";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
-import { formatDate, severityTone } from "@/lib/severity";
+import { Input } from "@/components/ui/Input";
+import type {
+  DashboardData,
+  DashboardLayoutMeta,
+  LayoutWidget,
+  WidgetType,
+} from "@/components/dashboard/types";
+import { WIDGET_CATALOG } from "@/components/dashboard/types";
+import { WidgetPicker } from "@/components/dashboard/WidgetPicker";
 
-type Hit = {
-  id: string;
-  title: string;
-  severity: string;
-  cvss_score?: number | null;
-  published_at?: string | null;
-  is_cisa_kev: boolean;
-  href: string;
-};
-
-type Dashboard = {
-  kpis: {
-    cves_today: number;
-    cves_today_delta_pct?: number | null;
-    cves_week: number;
-    cves_week_delta_pct?: number | null;
-    kev_week: number;
-    kev_total: number;
-    kev_catalog: number;
-  };
-  chart_range: string;
-  activity: { date: string; count: number }[];
-  recent_critical: Hit[];
-  recent_kev: Hit[];
-  sync_health: Record<string, { source: string; status: string; finished_at?: string | null; error?: string } | null>;
-};
-
-function Delta({ v }: { v?: number | null }) {
-  if (v == null) return null;
-  const tone = v > 0 ? "text-ok" : v < 0 ? "text-danger" : "text-muted";
-  const sign = v > 0 ? "+" : "";
-  return (
-    <span className={`text-xs ${tone}`}>
-      {sign}
-      {v}%
-    </span>
-  );
-}
-
-function SyncPill({ label, item }: { label: string; item: Dashboard["sync_health"][string] }) {
-  if (!item) {
-    return (
-      <div className="rounded-xl border border-border bg-surface2/60 px-3 py-2 text-sm">
-        <div className="text-muted">{label}</div>
-        <div className="mt-1">Нет данных</div>
-      </div>
-    );
-  }
-  return (
-    <div className="rounded-xl border border-border bg-surface2/60 px-3 py-2 text-sm">
-      <div className="flex items-center justify-between gap-2">
-        <span className="text-muted">{label}</span>
-        <Badge tone={item.status === "success" ? "ok" : "warn"}>{item.status}</Badge>
-      </div>
-      <div className="mt-1 text-xs text-muted">{formatDate(item.finished_at)}</div>
-    </div>
-  );
-}
+const DashboardCanvas = dynamic(
+  () => import("@/components/dashboard/DashboardCanvas").then((m) => m.DashboardCanvas),
+  { ssr: false, loading: () => <div className="text-sm text-muted">Загрузка сетки…</div> },
+);
 
 export default function DashboardPage() {
-  const [data, setData] = useState<Dashboard | null>(null);
+  const [data, setData] = useState<DashboardData | null>(null);
   const [range, setRange] = useState("1M");
   const [err, setErr] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
-  const load = useCallback(async (r: string) => {
+  const [layouts, setLayouts] = useState<DashboardLayoutMeta[]>([]);
+  const [active, setActive] = useState<DashboardLayoutMeta | null>(null);
+  const [draft, setDraft] = useState<LayoutWidget[]>([]);
+  const [editing, setEditing] = useState(false);
+  const [dirty, setDirty] = useState(false);
+  const [saveAsOpen, setSaveAsOpen] = useState(false);
+  const [saveAsName, setSaveAsName] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [pickerOpen, setPickerOpen] = useState(false);
+
+  const loadData = useCallback(async (r: string) => {
     setLoading(true);
     setErr(null);
     try {
-      const res = await api<Dashboard>(`/dashboard?chart_range=${encodeURIComponent(r)}`);
+      const res = await api<DashboardData>(`/dashboard?chart_range=${encodeURIComponent(r)}`);
       setData(res);
     } catch (e) {
       setErr(e instanceof Error ? e.message : "Ошибка");
@@ -87,24 +51,283 @@ export default function DashboardPage() {
     }
   }, []);
 
-  useEffect(() => {
-    load(range);
-  }, [load, range]);
+  const loadLayouts = useCallback(async () => {
+    const [list, act] = await Promise.all([
+      api<DashboardLayoutMeta[]>("/dashboard/layouts"),
+      api<DashboardLayoutMeta>("/dashboard/layouts/active"),
+    ]);
+    setLayouts(list);
+    setActive(act);
+    setDraft(act.layout.widgets || []);
+    setDirty(false);
+    setEditing(false);
+  }, []);
 
-  const maxAct = Math.max(1, ...(data?.activity.map((a) => a.count) || [1]));
+  useEffect(() => {
+    loadData(range);
+  }, [loadData, range]);
+
+  useEffect(() => {
+    loadLayouts().catch((e) => setErr(e instanceof Error ? e.message : "Ошибка шаблонов"));
+  }, [loadLayouts]);
+
+  const usedTypes = useMemo(() => new Set(draft.map((w) => w.type)), [draft]);
+
+  async function selectLayout(id: number) {
+    if (dirty && !confirm("Есть несохранённые изменения. Загрузить другой шаблон?")) return;
+    setBusy(true);
+    setErr(null);
+    try {
+      const act = await api<DashboardLayoutMeta>("/dashboard/layouts/active", {
+        method: "PUT",
+        body: JSON.stringify({ layout_id: id }),
+      });
+      setActive(act);
+      setDraft(act.layout.widgets || []);
+      setLayouts(await api<DashboardLayoutMeta[]>("/dashboard/layouts"));
+      setDirty(false);
+      setEditing(false);
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Ошибка");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function onWidgetsChange(next: LayoutWidget[]) {
+    setDraft(next);
+    setDirty(true);
+  }
+
+  function addWidget(type: WidgetType) {
+    if (usedTypes.has(type)) return;
+    const meta = WIDGET_CATALOG.find((c) => c.type === type)!;
+    const maxY = draft.reduce((m, w) => Math.max(m, w.y + w.h), 0);
+    setDraft([
+      ...draft,
+      {
+        i: type,
+        type,
+        x: 0,
+        y: maxY,
+        w: meta.w,
+        h: meta.h,
+        minW: 2,
+        minH: 2,
+      },
+    ]);
+    setDirty(true);
+    setPickerOpen(false);
+  }
+
+  async function saveOverwrite() {
+    if (!active || active.is_system) {
+      setSaveAsOpen(true);
+      setSaveAsName(`${active?.name || "Шаблон"} (мой)`);
+      return;
+    }
+    setBusy(true);
+    setErr(null);
+    try {
+      const updated = await api<DashboardLayoutMeta>(`/dashboard/layouts/${active.id}`, {
+        method: "PUT",
+        body: JSON.stringify({
+          name: active.name,
+          layout: { version: 1, cols: 12, widgets: draft },
+        }),
+      });
+      setActive(updated);
+      setDraft(updated.layout.widgets || []);
+      setLayouts(await api<DashboardLayoutMeta[]>("/dashboard/layouts"));
+      setDirty(false);
+      setEditing(false);
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Ошибка");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function saveAs() {
+    const name = saveAsName.trim();
+    if (!name) return;
+    setBusy(true);
+    setErr(null);
+    try {
+      const created = await api<DashboardLayoutMeta>("/dashboard/layouts", {
+        method: "POST",
+        body: JSON.stringify({
+          name,
+          source_id: active?.id,
+          layout: { version: 1, cols: 12, widgets: draft },
+        }),
+      });
+      setActive(created);
+      setDraft(created.layout.widgets || []);
+      setLayouts(await api<DashboardLayoutMeta[]>("/dashboard/layouts"));
+      setDirty(false);
+      setEditing(false);
+      setSaveAsOpen(false);
+      setSaveAsName("");
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Ошибка");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function duplicateActive() {
+    if (!active) return;
+    setBusy(true);
+    try {
+      const created = await api<DashboardLayoutMeta>(`/dashboard/layouts/${active.id}/duplicate`, {
+        method: "POST",
+      });
+      setActive(created);
+      setDraft(created.layout.widgets || []);
+      setLayouts(await api<DashboardLayoutMeta[]>("/dashboard/layouts"));
+      setDirty(false);
+      setEditing(true);
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Ошибка");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function deleteActive() {
+    if (!active || active.is_system) return;
+    if (!confirm(`Удалить шаблон «${active.name}»?`)) return;
+    setBusy(true);
+    try {
+      await api(`/dashboard/layouts/${active.id}`, { method: "DELETE" });
+      await loadLayouts();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Ошибка");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function discardEdits() {
+    if (!active) return;
+    setDraft(active.layout.widgets || []);
+    setDirty(false);
+    setEditing(false);
+  }
 
   return (
-    <div className="space-y-6" data-testid="dashboard-page">
+    <div className="space-y-4" data-testid="dashboard-page">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="vbx-page-title">Dashboard</h1>
-          <p className="vbx-page-sub">KPI, активность CVE и здоровье источников данных.</p>
+          <p className="vbx-page-sub">
+            Системный Classic и ваши шаблоны — правьте любой, сохраняйте как новый.
+          </p>
         </div>
-        <Button type="button" variant="secondary" onClick={() => load(range)} disabled={loading}>
+        <Button type="button" variant="secondary" onClick={() => loadData(range)} disabled={loading}>
           <RefreshCw size={14} className={loading ? "animate-spin" : ""} />
-          Обновить
+          Обновить данные
         </Button>
       </div>
+
+      <Card className="space-y-3">
+        <div className="flex flex-wrap items-center gap-2">
+          <LayoutTemplate size={16} className="text-muted" />
+          <label className="text-sm text-muted">Шаблон</label>
+          <select
+            className="rounded-xl border border-border bg-surface2 px-3 py-2 text-sm"
+            value={active?.id ?? ""}
+            disabled={busy || editing}
+            onChange={(e) => selectLayout(Number(e.target.value))}
+          >
+            {layouts.map((l) => (
+              <option key={l.id} value={l.id}>
+                {l.is_system ? "★ " : ""}
+                {l.name}
+              </option>
+            ))}
+          </select>
+          {active?.is_system && <Badge tone="accent">системный</Badge>}
+          {dirty && <Badge tone="warn">не сохранено</Badge>}
+        </div>
+
+        <div className="flex flex-wrap gap-2">
+          {!editing ? (
+            <Button type="button" onClick={() => setEditing(true)} disabled={!active}>
+              <Pencil size={14} />
+              Редактировать
+            </Button>
+          ) : (
+            <>
+              <Button type="button" onClick={saveOverwrite} disabled={busy}>
+                <Save size={14} />
+                {active?.is_system ? "Сохранить как…" : "Сохранить"}
+              </Button>
+              <Button
+                type="button"
+                variant="secondary"
+                onClick={() => {
+                  setSaveAsName(active?.is_system ? `${active.name} (мой)` : `${active?.name || "Шаблон"} копия`);
+                  setSaveAsOpen(true);
+                }}
+                disabled={busy}
+              >
+                <Copy size={14} />
+                Сохранить как…
+              </Button>
+              <Button type="button" variant="ghost" onClick={discardEdits}>
+                <X size={14} />
+                Отменить
+              </Button>
+            </>
+          )}
+          <Button type="button" variant="secondary" onClick={duplicateActive} disabled={!active || busy}>
+            <Copy size={14} />
+            Дублировать
+          </Button>
+          <Button
+            type="button"
+            variant="ghost"
+            onClick={deleteActive}
+            disabled={!active || active.is_system || busy}
+          >
+            <Trash2 size={14} />
+            Удалить
+          </Button>
+        </div>
+
+        {editing && (
+          <div className="flex flex-wrap items-center gap-2 border-t border-border pt-3">
+            <Button type="button" onClick={() => setPickerOpen(true)}>
+              <Plus size={14} />
+              Добавить представление…
+            </Button>
+            <span className="text-xs text-muted">
+              {WIDGET_CATALOG.length} готовых блоков · на сетке {draft.length}
+            </span>
+          </div>
+        )}
+
+        {saveAsOpen && (
+          <div className="flex flex-wrap items-end gap-2 rounded-xl border border-border bg-surface2/50 p-3">
+            <label className="min-w-[220px] flex-1 text-sm">
+              <span className="mb-1 block text-muted">Название нового шаблона</span>
+              <Input
+                value={saveAsName}
+                onChange={(e) => setSaveAsName(e.target.value)}
+                placeholder="Мой дашборд"
+              />
+            </label>
+            <Button type="button" onClick={saveAs} disabled={busy || !saveAsName.trim()}>
+              Сохранить
+            </Button>
+            <Button type="button" variant="ghost" onClick={() => setSaveAsOpen(false)}>
+              Закрыть
+            </Button>
+          </div>
+        )}
+      </Card>
 
       {err && (
         <Card className="border-danger/40 text-sm text-danger" role="alert">
@@ -112,113 +335,23 @@ export default function DashboardPage() {
         </Card>
       )}
 
-      <div className="grid gap-4 sm:grid-cols-3">
-        <Card>
-          <div className="flex items-center gap-2 text-sm text-muted">
-            <Activity size={14} /> CVE (окно)
-          </div>
-          <div className="mt-2 font-display text-3xl font-semibold">{data?.kpis.cves_today ?? "—"}</div>
-          <div className="mt-2 flex items-center gap-2 text-sm text-muted">
-            неделя: {data?.kpis.cves_week ?? "—"} <Delta v={data?.kpis.cves_week_delta_pct} />
-          </div>
-        </Card>
-        <Card>
-          <div className="flex items-center gap-2 text-sm text-muted">
-            <ShieldAlert size={14} /> CISA KEV
-          </div>
-          <div className="mt-2 font-display text-3xl font-semibold">{data?.kpis.kev_week ?? "—"}</div>
-          <div className="mt-2 text-sm text-muted">
-            всего флагов: {data?.kpis.kev_total ?? "—"} · каталог: {data?.kpis.kev_catalog ?? "—"}
-          </div>
-        </Card>
-        <Card>
-          <div className="flex items-center gap-2 text-sm text-muted">
-            <Database size={14} /> Синхронизация
-          </div>
-          <div className="mt-3 grid grid-cols-2 gap-2">
-            <SyncPill label="NVD" item={data?.sync_health.nvd ?? null} />
-            <SyncPill label="BDU" item={data?.sync_health.bdu ?? null} />
-            <SyncPill label="KEV" item={data?.sync_health.kev ?? null} />
-            <SyncPill label="EPSS" item={data?.sync_health.epss ?? null} />
-          </div>
-        </Card>
-      </div>
+      <DashboardCanvas
+        widgets={draft}
+        data={data}
+        range={range}
+        onRange={setRange}
+        editing={editing}
+        onWidgetsChange={onWidgetsChange}
+      />
 
-      <Card>
-        <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
-          <h2 className="font-display text-lg font-semibold">Активность CVE</h2>
-          <div className="flex gap-1">
-            {["1M", "6M", "1Y"].map((r) => (
-              <Button
-                key={r}
-                type="button"
-                variant={range === r ? "primary" : "ghost"}
-                className="px-3 py-1.5"
-                onClick={() => setRange(r)}
-              >
-                {r}
-              </Button>
-            ))}
-          </div>
-        </div>
-        <div className="flex h-36 items-end gap-1" data-testid="activity-chart" aria-label="График активности">
-          {(data?.activity || []).map((a) => (
-            <div key={a.date} className="group relative flex min-w-0 flex-1 flex-col items-center justify-end">
-              <div
-                className="w-full rounded-t-md bg-accent/70 transition group-hover:bg-accent"
-                style={{ height: `${Math.max(4, (a.count / maxAct) * 100)}%` }}
-                title={`${a.date}: ${a.count}`}
-              />
-            </div>
-          ))}
-          {!data?.activity?.length && <div className="text-sm text-muted">Нет данных за период</div>}
-        </div>
-      </Card>
-
-      <div className="grid gap-4 lg:grid-cols-2">
-        <Card>
-          <h2 className="mb-3 font-display text-lg font-semibold">Recent critical</h2>
-          <ul className="space-y-2">
-            {(data?.recent_critical || []).map((h) => (
-              <li key={h.id}>
-                <Link href={h.href} className="flex items-start justify-between gap-2 rounded-xl border border-border px-3 py-2 hover:border-accent/40">
-                  <div>
-                    <div className="font-medium">{h.id}</div>
-                    <div className="text-xs text-muted line-clamp-1">{h.title}</div>
-                  </div>
-                  <Badge tone={severityTone(h.severity)}>
-                    {h.severity}
-                    {h.cvss_score != null ? ` ${h.cvss_score}` : ""}
-                  </Badge>
-                </Link>
-              </li>
-            ))}
-            {!data?.recent_critical?.length && <li className="text-sm text-muted">Нет записей</li>}
-          </ul>
-        </Card>
-        <Card>
-          <h2 className="mb-3 flex items-center gap-2 font-display text-lg font-semibold">
-            <AlertTriangle size={16} className="text-warn" /> Recent KEV
-          </h2>
-          <ul className="space-y-2">
-            {(data?.recent_kev || []).map((h) => (
-              <li key={h.id}>
-                <Link
-                  href={h.href}
-                  className="flex items-start justify-between gap-2 rounded-xl border border-warn/40 bg-warn/5 px-3 py-2 hover:border-warn"
-                >
-                  <div>
-                    <div className="font-medium">{h.id}</div>
-                    <div className="text-xs text-muted line-clamp-1">{h.title}</div>
-                  </div>
-                  <Badge tone="warn">KEV</Badge>
-                </Link>
-              </li>
-            ))}
-            {!data?.recent_kev?.length && <li className="text-sm text-muted">Нет KEV</li>}
-          </ul>
-        </Card>
-      </div>
+      <WidgetPicker
+        open={pickerOpen}
+        onClose={() => setPickerOpen(false)}
+        data={data}
+        range={range}
+        usedTypes={usedTypes}
+        onAdd={addWidget}
+      />
     </div>
   );
 }

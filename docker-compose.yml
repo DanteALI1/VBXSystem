@@ -46,6 +46,10 @@ services:
       VBX_ADMIN_TITLE: ${VBX_ADMIN_TITLE}
       VBX_ADMIN_PHONE: ${VBX_ADMIN_PHONE}
       VBX_NVD_API_KEY: ${VBX_NVD_API_KEY:-}
+      VBX_PROFILE: ${VBX_PROFILE:-dev}
+      VBX_EPSS_MOCK: ${VBX_EPSS_MOCK:-}
+      VBX_AUTH_COOKIES: ${VBX_AUTH_COOKIES:-false}
+      VBX_COOKIE_SECURE: ${VBX_COOKIE_SECURE:-false}
       VBX_CORS_ORIGINS: ${VBX_CORS_ORIGINS:-http://localhost,http://127.0.0.1}
       VBX_TIMEZONE: ${VBX_TIMEZONE:-Europe/Moscow}
       TZ: ${VBX_TIMEZONE:-Europe/Moscow}
@@ -75,6 +79,8 @@ services:
       VBX_DATABASE_URL: postgresql+psycopg://${VBX_POSTGRES_USER:-vbx}:${VBX_POSTGRES_PASSWORD}@postgres:5432/${VBX_POSTGRES_DB:-vbx}
       VBX_REDIS_URL: redis://:${VBX_REDIS_PASSWORD}@redis:6379/0
       VBX_NVD_API_KEY: ${VBX_NVD_API_KEY:-}
+      VBX_PROFILE: ${VBX_PROFILE:-dev}
+      VBX_EPSS_MOCK: ${VBX_EPSS_MOCK:-}
       TZ: ${VBX_TIMEZONE:-Europe/Moscow}
     volumes:
       - vbx_uploads:/app/uploads
@@ -82,6 +88,8 @@ services:
       postgres:
         condition: service_healthy
       redis:
+        condition: service_healthy
+      api:
         condition: service_healthy
     mem_limit: ${VBX_API_MEM_LIMIT:-2g}
     healthcheck:
@@ -95,6 +103,8 @@ services:
     restart: unless-stopped
     environment:
       VBX_API_INTERNAL_URL: http://api:8000
+      VBX_AUTH_COOKIES: ${VBX_AUTH_COOKIES:-false}
+      VBX_COOKIE_SECURE: ${VBX_COOKIE_SECURE:-false}
       TZ: ${VBX_TIMEZONE:-Europe/Moscow}
     ports:
       - "${VBX_HTTP_PORT:-80}:3000"

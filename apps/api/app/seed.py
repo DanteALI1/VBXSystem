@@ -116,6 +116,12 @@ def run_seed(db: Session) -> None:
     seed_rbac(db)
     seed_admin(db)
     seed_demo_intel_if_empty(db)
+    try:
+        from app.services.dashboard_layouts import ensure_classic_layout
+
+        ensure_classic_layout(db)
+    except Exception as exc:  # pragma: no cover
+        print(f"[vbx-seed] classic layout skipped: {exc}")
 
 
 SAMPLE_BDU_XML = """<?xml version="1.0" encoding="UTF-8"?>

@@ -27,11 +27,23 @@ from app.schemas import (
 )
 from app.services.auth_helpers import get_setting, set_setting, write_audit
 from app.services.crypto_secrets import decrypt_secret, encrypt_secret, mask_secret
-from app.services.sync_jobs import enqueue_sync, process_sync_run
+from app.services.sync_jobs import enqueue_sync
 
 router = APIRouter(prefix="/settings/database", tags=["database"])
 
 CHUNK = 1024 * 1024
+DEFAULT_BDU_URL = "https://bdu.fstec.ru/files/documents/vullist.xlsx"
+
+
+def _download_bdu_url(url: str, dest: Path, max_bytes: int) -> int:
+    from fastapi import HTTPException
+
+    from app.services.bdu_download import BduDownloadError, download_bdu_url
+
+    try:
+        return download_bdu_url(url, dest, max_bytes)
+    except BduDownloadError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
 
 
 def _upload_root() -> Path:
@@ -53,10 +65,11 @@ def _require_db_admin(user: User = Depends(get_current_user)) -> User:
 
 
 def _last_sync(db: Session, source: str) -> SyncRun | None:
+    """Latest run for source (any status) so UI can show failures."""
     return (
         db.query(SyncRun)
-        .filter(SyncRun.source == source, SyncRun.status == "success")
-        .order_by(SyncRun.finished_at.desc())
+        .filter(SyncRun.source == source)
+        .order_by(SyncRun.id.desc())
         .first()
     )
 
@@ -98,6 +111,12 @@ def _build_settings(db: Session) -> DatabaseSettingsOut:
     last_bdu = _last_sync(db, "bdu")
     last_kev = _last_sync(db, "kev")
 
+    stored_bdu_url = get_setting(db, "bdu_xml_url", DEFAULT_BDU_URL)
+    # Old default vulxml.xml is gone (404) — auto-migrate to current FSTEC xlsx
+    if "vulxml.xml" in (stored_bdu_url or ""):
+        set_setting(db, "bdu_xml_url", DEFAULT_BDU_URL)
+        stored_bdu_url = DEFAULT_BDU_URL
+
     nvd_stats: dict = {}
     if last_nvd:
         try:
@@ -111,11 +130,7 @@ def _build_settings(db: Session) -> DatabaseSettingsOut:
         nvd_auto_update=auto,
         nvd_auto_interval_hours=int(interval or "2"),
         nvd_mock_mode=mock,
-        bdu_xml_url=get_setting(
-            db,
-            "bdu_xml_url",
-            "https://bdu.fstec.ru/files/documents/vulxml.xml",
-        ),
+        bdu_xml_url=stored_bdu_url or DEFAULT_BDU_URL,
         last_nvd_sync=_sync_out(last_nvd),
         last_bdu_sync=_sync_out(last_bdu),
         last_kev_sync=_sync_out(last_kev),
@@ -177,10 +192,15 @@ def start_nvd_sync(
     user: User = Depends(_require_db_admin),
 ) -> SyncStartOut:
     run = enqueue_sync(db, "nvd", created_by=user.id)
-    process_sync_run(db, run.id)
+    # Leave pending for worker — avoids blocking HTTP on multi-page NVD pull
     write_audit(db, action="database.sync_nvd", actor_user_id=user.id, resource=f"sync:{run.id}")
-    run = db.get(SyncRun, run.id)
-    return SyncStartOut(run=_sync_out(run), message="Синхронизация NVD завершена")
+    return SyncStartOut(
+        run=_sync_out(run),
+        message=(
+            "Полная синхронизация NVD поставлена в очередь (worker). "
+            "Зеркало ~400k CVE занимает обычно 1–3 часа — смотрите статус и счётчик CVE на этой странице."
+        ),
+    )
 
 
 @router.post("/sync/kev", response_model=SyncStartOut)
@@ -189,9 +209,11 @@ def start_kev_sync(
     user: User = Depends(_require_db_admin),
 ) -> SyncStartOut:
     run = enqueue_sync(db, "kev", created_by=user.id)
-    process_sync_run(db, run.id)
-    run = db.get(SyncRun, run.id)
-    return SyncStartOut(run=_sync_out(run), message="Синхронизация CISA KEV завершена")
+    write_audit(db, action="database.sync_kev", actor_user_id=user.id, resource=f"sync:{run.id}")
+    return SyncStartOut(
+        run=_sync_out(run),
+        message="Синхронизация CISA KEV поставлена в очередь (worker).",
+    )
 
 
 @router.post("/bdu/upload", response_model=BduUploadOut)
@@ -203,8 +225,9 @@ async def upload_bdu(
 ) -> BduUploadOut:
     rate_limit(request, "bdu_upload", limit=5, window=300)
     name = file.filename or "bdu.xml"
-    if not name.lower().endswith(".xml"):
-        raise HTTPException(status_code=400, detail="Сейчас поддерживается XML выгрузка БДУ")
+    lower = name.lower()
+    if not (lower.endswith(".xml") or lower.endswith(".xlsx")):
+        raise HTTPException(status_code=400, detail="Поддерживаются XML и XLSX выгрузки БДУ")
     # Path traversal / odd names
     safe_name = Path(name).name
     if safe_name != name or ".." in name or "/" in name or "\\" in name:
@@ -261,10 +284,14 @@ async def upload_bdu(
     )
     db.commit()
 
-    process_sync_run(db, run.id)
-    run = db.get(SyncRun, run.id)
+    # Import in worker — large XLSX can take minutes
     write_audit(db, action="database.bdu_upload", actor_user_id=user.id, resource=safe_name)
-    return BduUploadOut(run=_sync_out(run), message="Импорт БДУ выполнен", filename=safe_name)
+    run = db.get(SyncRun, run.id)
+    return BduUploadOut(
+        run=_sync_out(run),
+        message="Файл БДУ загружен, импорт выполняется в фоне (worker).",
+        filename=safe_name,
+    )
 
 
 @router.put("/bdu-url", response_model=MessageOut)
@@ -285,71 +312,33 @@ def sync_bdu_from_url(
     db: Session = Depends(get_db),
     user: User = Depends(_require_db_admin),
 ) -> BduUploadOut:
-    """Download BDU XML from configured URL and import (VULNEX-style)."""
+    """Download BDU XML/XLSX from configured URL and queue import."""
     rate_limit(request, "bdu_url_sync", limit=3, window=600)
-    import httpx
 
-    url = get_setting(
-        db,
-        "bdu_xml_url",
-        "https://bdu.fstec.ru/files/documents/vulxml.xml",
-    ).strip()
+    url = get_setting(db, "bdu_xml_url", DEFAULT_BDU_URL).strip()
     if not url.startswith("http://") and not url.startswith("https://"):
         raise HTTPException(status_code=400, detail="Задайте корректный http(s) URL БДУ")
 
-    max_bytes = get_settings().vbx_max_bdu_upload_bytes
-    upload_root = _upload_root()
-    upload_root.mkdir(parents=True, exist_ok=True)
     run = enqueue_sync(db, "bdu", created_by=user.id)
-    stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
-    dest = upload_root / f"{stamp}-bdu-url.xml"
-    try:
-        with httpx.Client(timeout=120.0, follow_redirects=True, verify=True) as client:
-            with client.stream("GET", url) as resp:
-                if resp.status_code >= 400:
-                    raise HTTPException(
-                        status_code=502,
-                        detail=f"Источник БДУ вернул HTTP {resp.status_code}",
-                    )
-                written = 0
-                with dest.open("wb") as out:
-                    for chunk in resp.iter_bytes(CHUNK):
-                        written += len(chunk)
-                        if written > max_bytes:
-                            dest.unlink(missing_ok=True)
-                            raise HTTPException(
-                                status_code=413,
-                                detail=f"Выгрузка БДУ превышает лимит {max_bytes // (1024 * 1024)} МБ",
-                            )
-                        out.write(chunk)
-    except HTTPException:
-        raise
-    except Exception as exc:
-        dest.unlink(missing_ok=True)
-        run.status = "failed"
-        run.error = str(exc)[:2000]
-        run.finished_at = utcnow()
-        db.commit()
-        raise HTTPException(status_code=502, detail=f"Не удалось скачать БДУ: {exc}") from exc
-
+    fname = "bdu-url.xlsx" if ".xlsx" in url.lower() else "bdu-url.xml"
+    # Defer download to worker — API only enqueues (avoids blocking uvicorn on 30MB+)
     db.add(
         SourceFile(
             source="bdu",
-            filename="bdu-url.xml",
-            stored_path=str(dest),
-            size_bytes=dest.stat().st_size,
+            filename=fname,
+            stored_path=f"url:{url}",
+            size_bytes=0,
             sync_run_id=run.id,
             created_at=utcnow(),
         )
     )
     db.commit()
-    process_sync_run(db, run.id)
-    run = db.get(SyncRun, run.id)
     write_audit(db, action="database.bdu_url_sync", actor_user_id=user.id, resource=url[:200])
+    run = db.get(SyncRun, run.id)
     return BduUploadOut(
         run=_sync_out(run),
-        message="Синхронизация БДУ по URL выполнена",
-        filename="bdu-url.xml",
+        message="Загрузка БДУ поставлена в очередь: worker скачает файл и выполнит импорт.",
+        filename=fname,
     )
 
 
