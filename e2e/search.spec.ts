@@ -26,6 +26,8 @@ test.describe("W3 search → detail", () => {
     await expect(hit).toBeVisible({ timeout: 20000 });
     await hit.click();
     await expect(page.getByTestId("cve-detail")).toBeVisible();
+    await expect(page.getByTestId("scoring-details")).toBeVisible();
     await expect(page.getByTestId("bdu-panel")).toBeVisible();
+    await expect(page.getByText("Vulnerability Scoring Details")).toBeVisible();
   });
 });
