@@ -32,7 +32,7 @@ test.describe("W8 smoke", () => {
     await loginViaApi(page);
 
     await page.goto(`${BASE}/search`);
-    await expect(page.getByRole("heading", { name: "Search" })).toBeVisible({ timeout: 15000 });
+    await expect(page.getByRole("heading", { name: /Security Vulnerability Database|Search/i })).toBeVisible({ timeout: 15000 });
     await page.getByLabel("Поисковый запрос").fill("CVE-2024");
     await page.getByRole("button", { name: "Найти" }).click();
     const hit = page.getByTestId("hit-CVE-2024-0001");

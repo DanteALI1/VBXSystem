@@ -97,8 +97,8 @@ export default function DashboardPage() {
     <div className="space-y-6" data-testid="dashboard-page">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="font-display text-2xl font-semibold tracking-tight">Dashboard</h1>
-          <p className="mt-1 text-sm text-muted">KPI, активность CVE и здоровье источников данных.</p>
+          <h1 className="vbx-page-title">Dashboard</h1>
+          <p className="vbx-page-sub">KPI, активность CVE и здоровье источников данных.</p>
         </div>
         <Button type="button" variant="secondary" onClick={() => load(range)} disabled={loading}>
           <RefreshCw size={14} className={loading ? "animate-spin" : ""} />

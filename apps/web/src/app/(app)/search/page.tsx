@@ -95,9 +95,9 @@ export default function SearchPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="font-display text-2xl font-semibold tracking-tight">Search</h1>
-        <p className="mt-1 text-sm text-muted">
-          Поиск CVE и записей БДУ. Строки CISA KEV выделены акцентом.
+        <h1 className="vbx-page-title">Security Vulnerability Database</h1>
+        <p className="vbx-page-sub">
+          Поиск CVE и записей БДУ ФСТЭК. Строки CISA KEV выделены янтарным акцентом.
         </p>
       </div>
 
@@ -212,15 +212,13 @@ export default function SearchPage() {
           {data && data.results.length === 0 && !loading && (
             <Card className="text-sm text-muted">Ничего не найдено. Измените запрос или фильтры.</Card>
           )}
-          <ul className="space-y-2" data-testid="search-results">
+          <ul className="divide-y divide-border/70 overflow-hidden rounded-2xl border border-border bg-surface/90" data-testid="search-results">
             {data?.results.map((hit) => (
               <li key={`${hit.kind}-${hit.id}`}>
                 <Link
                   href={hit.href}
-                  className={`block rounded-2xl border px-4 py-3 transition hover:border-accent/40 ${
-                    hit.is_cisa_kev
-                      ? "border-warn/50 bg-warn/5 ring-1 ring-warn/20"
-                      : "border-border bg-surface/80"
+                  className={`block px-4 py-3.5 transition hover:bg-surface2/80 ${
+                    hit.is_cisa_kev ? "vbx-row-kev" : ""
                   }`}
                   data-testid={`hit-${hit.id}`}
                   data-kev={hit.is_cisa_kev ? "true" : "false"}
@@ -228,7 +226,9 @@ export default function SearchPage() {
                   <div className="flex flex-wrap items-start justify-between gap-2">
                     <div className="min-w-0">
                       <div className="flex flex-wrap items-center gap-2">
-                        <span className="font-display font-semibold tracking-tight">{hit.id}</span>
+                        <span className="font-display font-semibold tracking-tight text-accent2">
+                          {hit.id}
+                        </span>
                         {hit.is_cisa_kev && (
                           <Badge tone="warn" aria-label="CISA Known Exploited Vulnerability">
                             <AlertTriangle size={10} className="mr-1" aria-hidden />

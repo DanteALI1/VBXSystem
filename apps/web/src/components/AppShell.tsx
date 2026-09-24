@@ -11,6 +11,7 @@ import {
   Ticket,
   Settings,
   Shield,
+  LogOut,
 } from "lucide-react";
 import { clearTokens } from "@/lib/api";
 import { useAuth } from "@/lib/useAuth";
@@ -37,23 +38,27 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   if (loading) {
     return (
-      <div className="grid min-h-screen place-items-center text-sm text-muted">Загрузка сессии…</div>
+      <div className="grid min-h-screen place-items-center bg-bg text-sm text-muted">
+        Загрузка сессии…
+      </div>
     );
   }
 
   return (
-    <div className="min-h-screen lg:grid lg:grid-cols-[240px_1fr]">
-      <aside className="border-b border-border bg-surface/80 lg:border-b-0 lg:border-r">
-        <div className="flex items-center gap-2 px-5 py-5">
-          <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-accent/20 text-accent2">
+    <div className="min-h-screen bg-bg lg:grid lg:grid-cols-[248px_1fr]">
+      <aside className="sticky top-0 z-20 border-b border-border/80 bg-surface/95 backdrop-blur lg:h-screen lg:border-b-0 lg:border-r">
+        <div className="flex items-center gap-3 px-5 py-5">
+          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-accent to-accent2 text-white shadow-soft">
             <Shield size={18} />
           </div>
-          <div>
-            <div className="font-display text-lg font-semibold tracking-tight">VBX</div>
-            <div className="text-xs text-muted">Vulnerability Intelligence</div>
+          <div className="min-w-0">
+            <div className="font-display text-lg font-semibold tracking-tight text-text">VBX</div>
+            <div className="truncate text-[11px] uppercase tracking-wider text-muted">
+              Vulnerability Intelligence
+            </div>
           </div>
         </div>
-        <nav className="space-y-1 px-3 pb-6">
+        <nav className="space-y-0.5 px-3 pb-6" aria-label="Основное меню">
           {NAV.map((item) => {
             const active =
               pathname === item.href ||
@@ -65,36 +70,47 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               <Link
                 key={item.href}
                 href={item.href}
-                className={`flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm transition ${
+                className={`group flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition ${
                   active
-                    ? "bg-accent/15 text-accent2"
+                    ? "bg-accent/15 text-accent2 shadow-[inset_3px_0_0_0_var(--vbx-accent)]"
                     : "text-muted hover:bg-surface2 hover:text-text"
                 }`}
               >
-                <Icon size={16} />
+                <Icon
+                  size={16}
+                  className={active ? "text-accent2" : "text-muted group-hover:text-text"}
+                />
                 {item.label}
               </Link>
             );
           })}
         </nav>
       </aside>
-      <div className="min-w-0">
-        <header className="flex items-center justify-between border-b border-border px-6 py-4">
-          <div className="text-sm text-muted">
+
+      <div className="flex min-w-0 flex-col">
+        <header className="sticky top-0 z-10 flex items-center justify-between gap-4 border-b border-border/80 bg-bg/80 px-5 py-3 backdrop-blur md:px-8">
+          <div className="min-w-0 text-sm text-muted">
             {user ? (
-              <>
-                {user.full_name || user.username}
-                {user.is_super_admin ? " · Главный администратор" : ""}
-              </>
+              <span className="truncate">
+                <span className="text-text">{user.full_name || user.username}</span>
+                {user.is_super_admin ? (
+                  <span className="hidden sm:inline"> · Главный администратор</span>
+                ) : null}
+              </span>
             ) : (
               "Внутренняя система управления уязвимостями"
             )}
           </div>
-          <button type="button" onClick={logout} className="text-sm text-accent2 hover:underline">
+          <button
+            type="button"
+            onClick={logout}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-surface2 px-3 py-1.5 text-sm text-muted transition hover:border-accent/40 hover:text-text"
+          >
+            <LogOut size={14} />
             Выйти
           </button>
         </header>
-        <main className="p-6">{children}</main>
+        <main className="vbx-fade-in flex-1 px-5 py-6 md:px-8">{children}</main>
       </div>
     </div>
   );

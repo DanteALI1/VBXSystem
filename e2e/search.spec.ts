@@ -18,7 +18,7 @@ test.describe("W3 search → detail", () => {
     await expect.poll(async () => page.evaluate(() => localStorage.getItem("vbx_access_token"))).toBeTruthy();
 
     await page.goto(`${BASE}/search`);
-    await expect(page.getByRole("heading", { name: "Search" })).toBeVisible({ timeout: 15000 });
+    await expect(page.getByRole("heading", { name: /Security Vulnerability Database|Search/i })).toBeVisible({ timeout: 15000 });
     await page.getByLabel("Поисковый запрос").fill("CVE-2024");
     await page.getByRole("button", { name: "Найти" }).click();
 
