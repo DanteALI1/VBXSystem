@@ -34,8 +34,8 @@
 | Раздел | Route | Описание |
 |--------|-------|----------|
 | Dashboard | `/dashboard` | Метрики, активность CVE, KEV highlights |
-| Search | `/search` | Унифицированный поиск CVE + BDU |
-| CVEQL | `/cveql` | Threat-hunting query language |
+| Search | `/search` | Унифицированный поиск CVE + BDU (+ Local); режимы Простой / CVEQL |
+| CVEQL | `/search?mode=cveql` | Threat-hunting QL (legacy `/cveql` → redirect) |
 | EPSS | `/epss` | Exploit Prediction Scoring System |
 | Exploits (XDB) | `/xdb` | Таблица PoC/exploits (формат VulnCheck XDB) |
 | Tickets | `/tickets` | Внутренние заявки |
@@ -122,11 +122,10 @@ Official dumps (reference):
 - Sync health widget (NVD / BDU / KEV last success)
 
 ### 5.3 Search
-- Query box: CVE id, BDU id, keyword, vendor/product
-- Filters (sidebar/right): severity, KEV, has BDU, date presets (Today / Yesterday / 7d / 30d / …)
-- Results mix CVE + standalone BDU
-- Row badges: severity, **KEV**, **BDU**, EPSS
-- Pagination + sort (published, cvss, epss)
+- Страница **Security Vulnerability Database** (`/search`)
+- Режимы: **Простой** | **CVEQL** (`?mode=cveql`)
+- Простой: query box (CVE / BDU / keyword), фильтры severity / KEV / has BDU / date, sort, пагинация; корпус CVE + standalone BDU + Local; KEV-акцент
+- CVEQL: редактор + examples/help; execute → таблица; только CVE (см. 5.6)
 
 ### 5.4 CVE Detail (cvefeed-like fields)
 Обязательные блоки:
@@ -151,6 +150,7 @@ Official dumps (reference):
 - Actions: Create Ticket
 
 ### 5.6 CVEQL
+- UI встроен в Search (`/search?mode=cveql`); legacy `/cveql` → redirect
 - Editor + examples + operators/fields help (как на cvefeed)
 - Execute → results table
 - Rate limit per role

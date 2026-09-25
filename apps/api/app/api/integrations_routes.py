@@ -12,6 +12,8 @@ from app.services.auth_helpers import get_setting, set_setting, write_audit
 from app.services.crypto_secrets import decrypt_secret, encrypt_secret, mask_secret
 from app.services.ldap_service import get_ldap_config, save_ldap_config, sync_ldap_groups, test_ldap_connection
 from app.services.smtp_service import send_smtp_message
+from app.services.sso_oidc import get_sso_config, save_sso_config, validate_sso_ready
+from app.services.telegram_stub import get_telegram_config, save_telegram_config, send_telegram_test
 
 router = APIRouter(prefix="/settings/integrations", tags=["settings-integrations"])
 
@@ -30,17 +32,22 @@ def _smtp_out(db: Session) -> dict:
 
 
 def _sso_out(db: Session) -> dict:
-    secret = decrypt_secret(get_setting(db, "sso_client_secret_enc", ""))
+    cfg = get_sso_config(db)
     return {
-        "enabled": get_setting(db, "sso_enabled", "false") == "true",
-        "provider": get_setting(db, "sso_provider", "oidc"),
-        "client_id": get_setting(db, "sso_client_id", ""),
-        "client_secret_masked": mask_secret(secret) if secret else "",
-        "client_secret_configured": bool(secret),
-        "issuer_url": get_setting(db, "sso_issuer_url", ""),
-        "authorize_url": get_setting(db, "sso_authorize_url", ""),
-        "token_url": get_setting(db, "sso_token_url", ""),
-        "staging": get_setting(db, "sso_staging", "true") == "true",
+        "enabled": cfg["enabled"],
+        "provider": cfg["provider"],
+        "client_id": cfg["client_id"],
+        "client_secret_masked": cfg["client_secret_masked"],
+        "client_secret_configured": cfg["client_secret_configured"],
+        "issuer_url": cfg["issuer_url"],
+        "authorize_url": cfg["authorize_url"],
+        "token_url": cfg["token_url"],
+        "userinfo_url": cfg["userinfo_url"],
+        "redirect_uri": cfg["redirect_uri"],
+        "scopes": cfg["scopes"],
+        "staging": cfg["staging"],
+        "role_map": cfg["role_map"],
+        "button_label": cfg["button_label"],
     }
 
 
@@ -49,7 +56,12 @@ def get_integrations(
     db: Session = Depends(get_db),
     _: User = Depends(require_super_admin),
 ) -> IntegrationsOut:
-    return IntegrationsOut(smtp=_smtp_out(db), ldap=get_ldap_config(db), sso=_sso_out(db))
+    return IntegrationsOut(
+        smtp=_smtp_out(db),
+        ldap=get_ldap_config(db),
+        sso=_sso_out(db),
+        telegram=get_telegram_config(db),
+    )
 
 
 class SmtpUpdate(BaseModel):
@@ -176,7 +188,12 @@ class SsoUpdate(BaseModel):
     issuer_url: str | None = None
     authorize_url: str | None = None
     token_url: str | None = None
+    userinfo_url: str | None = None
+    redirect_uri: str | None = None
+    scopes: str | None = None
     staging: bool | None = None
+    role_map: dict | None = None
+    button_label: str | None = None
 
 
 @router.put("/sso", response_model=MessageOut)
@@ -185,32 +202,55 @@ def update_sso(
     db: Session = Depends(get_db),
     user: User = Depends(require_super_admin),
 ) -> MessageOut:
-    data = payload.model_dump(exclude_unset=True)
-    mapping = {
-        "enabled": ("sso_enabled", lambda v: "true" if v else "false"),
-        "provider": ("sso_provider", str),
-        "client_id": ("sso_client_id", str),
-        "issuer_url": ("sso_issuer_url", str),
-        "authorize_url": ("sso_authorize_url", str),
-        "token_url": ("sso_token_url", str),
-        "staging": ("sso_staging", lambda v: "true" if v else "false"),
-    }
-    for src, (key, conv) in mapping.items():
-        if src in data:
-            set_setting(db, key, conv(data[src]))
-    if data.get("client_secret"):
-        set_setting(db, "sso_client_secret_enc", encrypt_secret(str(data["client_secret"])))
+    save_sso_config(db, payload.model_dump(exclude_unset=True))
     write_audit(db, action="integrations.sso_update", actor_user_id=user.id, resource="sso")
     return MessageOut(message="SSO настройки сохранены")
 
 
 @router.post("/sso/test", response_model=MessageOut)
 def sso_test(db: Session = Depends(get_db), user: User = Depends(require_super_admin)) -> MessageOut:
-    cfg = _sso_out(db)
-    if not cfg["client_id"] or not cfg["issuer_url"]:
-        raise HTTPException(status_code=400, detail="Укажите client_id и issuer_url")
+    cfg = get_sso_config(db)
+    ok, msg = validate_sso_ready(cfg)
+    if not ok:
+        raise HTTPException(status_code=400, detail=msg)
     write_audit(db, action="integrations.sso_test", actor_user_id=user.id, resource="sso")
     mode = "staging" if cfg["staging"] else "live"
-    return MessageOut(
-        message=f"SSO {cfg['provider']} ({mode}): конфигурация принята. Реальный login redirect — на edge/proxy.",
+    hint = (
+        "Демо-вход: /auth/sso/login (без IdP)."
+        if cfg["staging"]
+        else f"Redirect URI для IdP: {cfg['redirect_uri']}"
     )
+    return MessageOut(message=f"SSO {cfg['provider']} ({mode}): {msg}. {hint}")
+
+
+class TelegramUpdate(BaseModel):
+    enabled: bool | None = None
+    bot_token: str | None = None
+    chat_id: str | None = None
+
+
+@router.put("/telegram", response_model=MessageOut)
+def update_telegram(
+    payload: TelegramUpdate,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_super_admin),
+) -> MessageOut:
+    save_telegram_config(db, payload.model_dump(exclude_unset=True))
+    write_audit(db, action="integrations.telegram_update", actor_user_id=user.id, resource="telegram")
+    return MessageOut(message="Telegram настройки сохранены")
+
+
+@router.post("/telegram/test", response_model=MessageOut)
+def telegram_test(
+    db: Session = Depends(get_db),
+    user: User = Depends(require_super_admin),
+) -> MessageOut:
+    result = send_telegram_test(db)
+    write_audit(
+        db,
+        action="integrations.telegram_test",
+        actor_user_id=user.id,
+        resource="telegram",
+        details=str(result),
+    )
+    return MessageOut(message=result.get("message", "OK"))

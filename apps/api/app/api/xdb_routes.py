@@ -128,5 +128,49 @@ def xdb_connector_stub(_: User = Depends(require_permissions("vuln:sync"))) -> M
 
     raise HTTPException(
         status_code=501,
-        detail="Коннектор внешней ленты XDB пока недоступен. Используйте CSV/JSON import.",
+        detail=(
+            "Live XDB connector is not a commercial feed client. "
+            "Use CSV/JSON import, or enable VBX_XDB_CONNECTOR_ENABLED=true and POST "
+            "/xdb/connector/fetch with {\"url\": \"https://...\"} for a simple metadata URL pull."
+        ),
     )
+
+
+class XdbFetchIn(BaseModel):
+    url: str = Field(min_length=8, max_length=2048)
+
+
+@router.post("/connector/fetch", response_model=ExploitImportOut)
+def xdb_connector_fetch(
+    body: XdbFetchIn,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_permissions("vuln:sync")),
+) -> ExploitImportOut:
+    settings = get_settings()
+    if not settings.vbx_xdb_connector_enabled:
+        raise HTTPException(
+            status_code=501,
+            detail=(
+                "XDB URL fetch stub disabled. Set VBX_XDB_CONNECTOR_ENABLED=true "
+                "(and optionally VBX_XDB_FEED_URL). Prefer CSV/JSON import for production."
+            ),
+        )
+    url = (body.url or settings.vbx_xdb_feed_url or "").strip()
+    if not url:
+        raise HTTPException(status_code=400, detail="Укажите url или VBX_XDB_FEED_URL")
+    try:
+        from app.services.xdb import fetch_feed_url
+
+        stats = fetch_feed_url(db, url, max_bytes=settings.vbx_max_xdb_upload_bytes)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Ошибка загрузки ленты: {exc}") from exc
+    write_audit(
+        db,
+        action="xdb.connector_fetch",
+        actor_user_id=user.id,
+        resource=url[:255],
+        details=str(stats),
+    )
+    return ExploitImportOut(message=f"Лента импортирована: {url}", **stats)

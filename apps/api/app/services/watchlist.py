@@ -46,6 +46,23 @@ def add_entry(db: Session, user: User, *, kind: str, value: str) -> OrgWatchlist
     return entry
 
 
+def find_cve_entry(db: Session, user: User, cve_id: str) -> OrgWatchlistEntry | None:
+    """Return existing watchlist CVE entry for this org/user, if any."""
+    value = (cve_id or "").strip().upper()
+    if not value:
+        return None
+    key = org_key_for(user)
+    q = db.query(OrgWatchlistEntry).filter(
+        OrgWatchlistEntry.kind == "cve",
+        OrgWatchlistEntry.value == value,
+    )
+    if key:
+        q = q.filter(OrgWatchlistEntry.org_key == key)
+    else:
+        q = q.filter(OrgWatchlistEntry.user_id == user.id, OrgWatchlistEntry.org_key == "")
+    return q.order_by(OrgWatchlistEntry.id.desc()).first()
+
+
 def delete_entry(db: Session, user: User, entry_id: int) -> bool:
     entry = db.get(OrgWatchlistEntry, entry_id)
     if not entry:

@@ -75,7 +75,7 @@ export default function BrandingSettingsPage() {
         <label className="block text-sm">
           <span className="mb-1.5 block text-muted">Текст на экране входа</span>
           <textarea
-            className="w-full rounded-xl border border-border bg-surface2 px-3 py-2 text-sm text-text outline-none focus:border-accent"
+            className="vbx-field"
             rows={4}
             value={data.login_text}
             onChange={(e) => setData({ ...data, login_text: e.target.value })}

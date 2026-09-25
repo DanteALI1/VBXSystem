@@ -12,28 +12,31 @@
 | W7 | Tickets | DONE | Internal vuln queue + workflow |
 | W8 | Hardening & E2E | DONE | Headers, upload limits, backup/ops docs, smoke E2E |
 | W9 | VULNEX UI & Ops enrich | **DONE** | Login split, branding, system metrics, local IDs, BDU URL, NVD/BDU tabs |
-| W10 | Setup wizard | PENDING | First-run wizard (no license) |
-| W11 | Notify & SLA | PENDING | Telegram + ticket SLA |
+| W10 | Setup wizard | **PARTIAL** | Minimal /setup org→branding→finish; skip if completed / seeded org |
+| W11 | Notify & SLA | **PARTIAL** | Ticket SLA + pending_close; Telegram stub settings + test |
 
-Last updated: 2026-09-24
+Last updated: 2026-09-25
 
 ## Known gaps (honest status)
 | Area | Reality | Notes |
 |------|---------|-------|
 | NVD mirror | **OK** (full catalog sync) | Resume from `nvd_mirror_cursor` on reclaim; auto-update scheduler **not** enabled (dev) |
 | BDU | **OK** XLSX + rich card | Download-by-URL runs in worker |
-| Search | **PARTIAL** | SQL pagination + `pg_trgm` GIN on Postgres; SQLite tests use ILIKE |
+| Search | **OK** | CVEQL-first UI: dynamic «+ Добавить фильтр», sidebar, wide table; `/cveql` → `/search` |
 | EPSS | **PARTIAL** | Mock when `VBX_PROFILE=dev` or `VBX_EPSS_MOCK=true`; live FIRST CSV when profile=prod (unless mock forced) |
 | Attention feed | **OK** v2 | watchlist → KEV 7д → KEV → EPSS≥порог → Critical≥9.0 |
 | Dashboard templates | **OK** | Classic / Analyst / Ops / Compact + personal DnD; виджет-каталог с превью |
 | Org watchlist | **OK** | `/watchlist` + Settings → Watchlist |
 | KPI semantics | **OK** | «CVE сегодня/неделя» = `published_at` NVD, не размер зеркала |
 | Auto-update | **OFF** | Setting exists; worker does not schedule (intentional during development) |
-| Auth session | **PARTIAL** | Bearer+localStorage default; `VBX_AUTH_COOKIES=true` → HttpOnly via Next BFF |
-| LDAP/SSO/mTLS | **STAGING** | Config/UI + honesty badges; not full live IdP / app-level mTLS |
+| Auth session | **PARTIAL** | Bearer default in dev; unset + `VBX_PROFILE=prod` → cookies; BFF + API CSRF double-submit (timing-safe) |
+| LDAP/SSO/mTLS | **PARTIAL** | SSO OIDC login + staging demo; LDAP mock/TCP; mTLS still proxy-side |
 | XDB live connector | **501** | CSV/JSON import works |
 | Attachments API | pending | Model exists |
-| W10 wizard / W11 SLA | PENDING | As table above |
+| W10 wizard | **PARTIAL** | `/setup` org→branding→finish; auto-skip when `VBX_ADMIN_ORG` or existing users |
+| W11 SLA / Telegram | **PARTIAL** | due_at/sla_hours, overdue badge, pending_close; Telegram stub (log/no-op) |
+| raw_json policy | **OK** | `VBX_CVE_STORE_RAW_JSON` + Settings toggle + prune |
+| Search column views | **OK** | `/search/views` stores column layout JSON |
 
 ## Install UX (interactive)
 - `deploy/redos/install.sh` — мастер: сеть → каталоги → PostgreSQL → Redis → SECRET_KEY → org → Admin (профиль; пароль **всегда** генерируется в конце) → доп. УЗ (имя+пароль) → NVD → firewall

@@ -1,3 +1,4 @@
+from app.api.deps import user_permissions
 from app.models import User
 from app.schemas import UserOut
 
@@ -16,4 +17,5 @@ def user_to_out(user: User) -> UserOut:
         totp_enabled=user.totp_enabled,
         roles=[r.code for r in user.roles],
         groups=[g.name for g in user.groups],
+        permissions=sorted(user_permissions(user)),
     )

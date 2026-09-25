@@ -17,6 +17,9 @@ PERMISSIONS = [
     ("tickets:manage", "Управление заявками"),
     ("audit:read", "Просмотр аудита"),
     ("api_keys:manage", "Управление API-ключами"),
+    ("scan:read", "Просмотр сканов и findings"),
+    ("scan:run", "Запуск сканов"),
+    ("scan:admin", "Администрирование модулей сканирования"),
 ]
 
 ROLES = {
@@ -39,17 +42,27 @@ ROLES = {
             "tickets:manage",
             "audit:read",
             "api_keys:manage",
+            "scan:read",
+            "scan:run",
+            "scan:admin",
         ],
     },
     "analyst": {
         "name": "Аналитик",
         "description": "Поиск, карточки, заявки",
-        "permissions": ["vuln:read", "tickets:read", "tickets:write", "settings:read"],
+        "permissions": [
+            "vuln:read",
+            "tickets:read",
+            "tickets:write",
+            "settings:read",
+            "scan:read",
+            "scan:run",
+        ],
     },
     "viewer": {
         "name": "Наблюдатель",
         "description": "Только чтение",
-        "permissions": ["vuln:read", "tickets:read", "settings:read"],
+        "permissions": ["vuln:read", "tickets:read", "settings:read", "scan:read"],
     },
     "ticket_manager": {
         "name": "Менеджер заявок",
@@ -112,16 +125,38 @@ def seed_admin(db: Session) -> User:
     return user
 
 
+def _ensure_setup_flag(db: Session) -> None:
+    """Mark setup complete for seeded installs with org; leave open only for bare first-run."""
+    from app.services.auth_helpers import get_setting, set_setting
+
+    if get_setting(db, "setup_completed", "") != "":
+        return
+    settings = get_settings()
+    # RED OS / .env with org → skip wizard. Empty org → wizard may run.
+    if (settings.vbx_admin_org or "").strip():
+        set_setting(db, "setup_completed", "true")
+
+
 def run_seed(db: Session) -> None:
     seed_rbac(db)
     seed_admin(db)
     seed_demo_intel_if_empty(db)
+    _ensure_setup_flag(db)
+    _ensure_cve_store_raw_json_default(db)
     try:
         from app.services.dashboard_layouts import ensure_classic_layout
 
         ensure_classic_layout(db)
     except Exception as exc:  # pragma: no cover
         print(f"[vbx-seed] classic layout skipped: {exc}")
+
+
+def _ensure_cve_store_raw_json_default(db: Session) -> None:
+    """Prod-safe default: do not store full NVD raw_json unless explicitly enabled."""
+    from app.services.auth_helpers import get_setting, set_setting
+
+    if get_setting(db, "cve_store_raw_json", "") == "":
+        set_setting(db, "cve_store_raw_json", "false")
 
 
 SAMPLE_BDU_XML = """<?xml version="1.0" encoding="UTF-8"?>

@@ -16,14 +16,17 @@
 | **Риски** | CVSS, CISA KEV, EPSS, CVEQL, каталог эксплойтов (XDB) |
 | **Операции** | Заявки: создание → статус → назначение → комментарии → timeline |
 | **Админка** | Пользователи/RBAC, брендинг, sync источников, метрики хоста, API‑ключи |
-| **Платформа** | Next.js + FastAPI + Postgres + Redis + worker синхронизации |
+| **Платформа** | Next.js + FastAPI + Postgres + Redis + sync-worker + ops-worker |
+| **Сканы** | Модули nmap/shodan/zap/nuclei/gowitness/discovery; findings risk/triage; Multi-BU RBAC |
 
 ```
-   Browser ──► web (Next.js) ──/api/*──► api (FastAPI) ◄── worker
+   Browser ──► web (Next.js) ──/api/*──► api (FastAPI)
                                             │
-                                   ┌────────┴────────┐
-                                   ▼                 ▼
-                               Postgres            Redis
+                    ┌───────────────┬───────┴────────┬──────────────┐
+                    ▼               ▼                ▼              ▼
+               Postgres          Redis          worker(sync)   ops-worker
+                                                                   ▲
+                                              scanners (optional profiles)
 ```
 
 **Типичный сценарий:** аналитик находит CVE в Search → открывает карточку → создаёт заявку с severity и описанием → меняет статус, пишет комментарий → админ смотрит sync источников и метрики хоста.
@@ -54,6 +57,22 @@ bash deploy/redos/validate-install.sh   # Linux / РЕД ОС
 KPI «CVE сегодня» = публикации NVD за календарный день, не размер зеркала (см. виджет «Объём каталога»).
 
 **Профиль:** `VBX_PROFILE=dev` (EPSS mock) · `prod` → live EPSS. Опционально `VBX_AUTH_COOKIES=true` (HttpOnly через Next BFF).
+
+**Сканеры / evidence:** volume `gowitness_data` монтируется в API как `/app/artifacts/gowitness` (`VBX_ARTIFACTS_DIR`). После обновления:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.scanners.yml --profile gowitness up -d --build api scanner-gowitness web
+```
+
+**Ops (A→C):** сервис `ops-worker` (`VBX_WORKER_MODE=ops`) крутит расписания сканов и `alert_outbox`. Sync NVD остаётся на `worker` (`sync`). UI: результаты скана + diff/retest, triage/bulk находок, Настройки → Оповещения.
+
+**Wave 2 (D→G):** risk_score/priority/SLA + risk acceptance (ops reopen), rules v3 (`set_priority`/`assign`/`add_tag`), alert policies + Jira outbound (dry-run), projects/tags, executive HTML/PDF + WYSIWYG templates, Multi-BU `org_units` RBAC, attack-path graph (`/graph`), discovery sidecar:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.scanners.yml --profile discovery up -d --build
+```
+
+Подробнее: [modules/README.md](modules/README.md).
 ---
 
 ## Видео‑превью

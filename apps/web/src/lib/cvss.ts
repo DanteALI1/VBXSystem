@@ -97,7 +97,12 @@ export type ParsedCvss = {
 
 export function parseCvssVector(vector?: string | null): ParsedCvss | null {
   if (!vector || !vector.trim()) return null;
-  const parts = vector.trim().split("/");
+  let raw = vector.trim();
+  // BDU often stores metric-only strings without CVSS:3.x/ prefix
+  if (!/^CVSS/i.test(raw) && /(?:^|\/)AV:/.test(raw)) {
+    raw = `CVSS:3.1/${raw.replace(/^\//, "")}`;
+  }
+  const parts = raw.split("/");
   let version = "";
   const metrics: Partial<Record<CvssMetricKey, string>> = {};
   for (const part of parts) {
@@ -111,7 +116,8 @@ export function parseCvssVector(vector?: string | null): ParsedCvss | null {
       metrics[k as CvssMetricKey] = v;
     }
   }
-  return { version, metrics };
+  if (!Object.keys(metrics).length) return null;
+  return { version: version || "3.1", metrics };
 }
 
 export function metricWeights(parsed: ParsedCvss | null): number[] {

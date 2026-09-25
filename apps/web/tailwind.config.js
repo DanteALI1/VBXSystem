@@ -7,6 +7,7 @@ module.exports = {
         bg: "var(--vbx-bg)",
         surface: "var(--vbx-surface)",
         surface2: "var(--vbx-surface-2)",
+        field: "var(--vbx-field)",
         border: "var(--vbx-border)",
         text: "var(--vbx-text)",
         muted: "var(--vbx-muted)",

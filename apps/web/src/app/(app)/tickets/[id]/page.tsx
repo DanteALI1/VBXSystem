@@ -24,6 +24,9 @@ type Detail = {
   group_name?: string;
   created_by_name?: string;
   due_date?: string | null;
+  due_at?: string | null;
+  sla_hours?: number | null;
+  overdue?: boolean;
   created_at?: string | null;
   updated_at?: string | null;
   comments: { id: number; author_name: string; body: string; created_at?: string | null }[];
@@ -33,10 +36,11 @@ type Detail = {
 type GroupOpt = { id: number; name: string; source: string };
 
 const NEXT: Record<string, string[]> = {
-  new: ["in_progress", "waiting", "closed"],
-  in_progress: ["waiting", "resolved", "closed"],
-  waiting: ["in_progress", "resolved", "closed"],
-  resolved: ["closed", "in_progress"],
+  new: ["in_progress", "waiting", "pending_close", "closed"],
+  in_progress: ["waiting", "resolved", "pending_close", "closed"],
+  waiting: ["in_progress", "resolved", "pending_close", "closed"],
+  resolved: ["pending_close", "closed", "in_progress"],
+  pending_close: ["closed", "in_progress"],
   closed: ["in_progress"],
 };
 
@@ -120,6 +124,8 @@ export default function TicketDetailPage() {
           <div className="mt-3 flex flex-wrap gap-2">
             <Badge>{data.status}</Badge>
             <Badge tone={severityTone(data.severity)}>{data.severity}</Badge>
+            {data.overdue && <Badge tone="danger">overdue</Badge>}
+            {data.sla_hours != null && <Badge tone="neutral">SLA {data.sla_hours}ч</Badge>}
             {data.linked_cve_id && (
               <Link href={`/vuln/${encodeURIComponent(data.linked_cve_id)}`} className="text-accent2 hover:underline">
                 {data.linked_cve_id}
@@ -137,7 +143,7 @@ export default function TicketDetailPage() {
         </Link>
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-3 text-sm">
+      <div className="grid gap-4 sm:grid-cols-4 text-sm">
         <Card className="p-4">
           <div className="text-muted">Assignee</div>
           <div className="mt-1">{data.assignee_name || "—"}</div>
@@ -145,6 +151,10 @@ export default function TicketDetailPage() {
         <Card className="p-4">
           <div className="text-muted">Group queue</div>
           <div className="mt-1">{data.group_name || "—"}</div>
+        </Card>
+        <Card className="p-4">
+          <div className="text-muted">Due (SLA)</div>
+          <div className="mt-1">{formatDate(data.due_at || data.due_date)}</div>
         </Card>
         <Card className="p-4">
           <div className="text-muted">Updated</div>
@@ -161,8 +171,13 @@ export default function TicketDetailPage() {
         <h2 className="mb-3 font-display text-lg font-semibold">Статус</h2>
         <div className="flex flex-wrap gap-2">
           {(NEXT[data.status] || []).map((s) => (
-            <Button key={s} type="button" variant="secondary" onClick={() => setStatus(s)}>
-              → {s}
+            <Button
+              key={s}
+              type="button"
+              variant={s === "closed" && data.status === "pending_close" ? "primary" : "secondary"}
+              onClick={() => setStatus(s)}
+            >
+              {s === "closed" && data.status === "pending_close" ? "Подтвердить закрытие" : `→ ${s}`}
             </Button>
           ))}
         </div>
@@ -175,7 +190,7 @@ export default function TicketDetailPage() {
             <label className="block text-sm">
               <span className="mb-1 block text-muted">Группа</span>
               <select
-                className="rounded-xl border border-border bg-surface2 px-3 py-2.5 text-sm"
+                className="vbx-field"
                 value={groupId}
                 onChange={(e) => setGroupId(e.target.value)}
               >
@@ -207,7 +222,7 @@ export default function TicketDetailPage() {
         </ul>
         <form onSubmit={sendComment} className="space-y-2">
           <textarea
-            className="min-h-[80px] w-full rounded-xl border border-border bg-bg px-3 py-2 text-sm"
+            className="vbx-field min-h-[80px]"
             value={comment}
             onChange={(e) => setComment(e.target.value)}
             placeholder="Комментарий…"

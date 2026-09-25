@@ -167,7 +167,7 @@ export default function LocalDetailPage() {
   if (!data) return <div className="text-sm text-muted">Загрузка…</div>;
 
   const fieldClass =
-    "w-full rounded-xl border border-border bg-surface2 px-3 py-2 text-sm outline-none focus:border-accent";
+    "vbx-field";
   const sev = data.cvss_severity || data.severity;
 
   return (

@@ -14,13 +14,21 @@ class CveqlParseError(ValueError):
 
 ALLOWED_FIELDS = {
     "id": "id",
+    "title": "title",
     "severity": "severity",
     "cvss_score": "cvss_score",
     "published": "published",
+    "modified": "modified",
     "description": "description",
+    "status": "status",
+    "source": "source",
     "is_cisa_kev": "is_cisa_kev",
     "has_bdu": "has_bdu",
+    "is_remote": "is_remote",
     "products.vendor.name": "products_vendor",
+    "affected.app": "affected_app",
+    "affected.os": "affected_os",
+    "affected.version": "affected_version",
     "epss_scores.score": "epss_score",
     "bdu.id": "bdu_id",
 }

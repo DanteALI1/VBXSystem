@@ -1,23 +1,52 @@
 "use client";
 
 import Link from "next/link";
+import { useEffect, useState } from "react";
 import {
   Activity,
   AlertTriangle,
   Bookmark,
+  Crosshair,
   Database,
   ExternalLink,
+  Radar,
   Search,
   ShieldAlert,
   Terminal,
   Ticket,
   TrendingUp,
 } from "lucide-react";
+import { api } from "@/lib/api";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { formatDate, severityTone } from "@/lib/severity";
-import type { DashboardData, DashHit, EpssHit, WidgetType } from "./types";
+import type { DashboardData, DashHit, EpssHit, OpsDashboardData, WidgetType } from "./types";
+
+let opsInflight: Promise<OpsDashboardData> | null = null;
+let opsCached: OpsDashboardData | null = null;
+
+function useOpsDashboard(): OpsDashboardData | null {
+  const [ops, setOps] = useState<OpsDashboardData | null>(opsCached);
+  useEffect(() => {
+    if (opsCached) {
+      setOps(opsCached);
+      return;
+    }
+    opsInflight =
+      opsInflight ??
+      api<OpsDashboardData>("/dashboard/ops")
+        .then((d) => {
+          opsCached = d;
+          return d;
+        })
+        .finally(() => {
+          opsInflight = null;
+        });
+    opsInflight.then(setOps).catch(() => setOps(null));
+  }, []);
+  return ops;
+}
 
 const REASON_LABEL: Record<string, { label: string; tone: "warn" | "danger" | "ok" | "neutral" | "accent" }> = {
   watchlist: { label: "Watchlist", tone: "accent" },
@@ -54,13 +83,19 @@ function SyncPill({
       </div>
     );
   }
+  const ok = item.status === "success";
   return (
     <div className="rounded-xl border border-border bg-surface2/60 px-3 py-2 text-sm">
       <div className="flex items-center justify-between gap-2">
         <span className="text-muted">{label}</span>
-        <Badge tone={item.status === "success" ? "ok" : "warn"}>{item.status}</Badge>
+        <Badge tone={ok ? "ok" : "warn"}>{item.status}</Badge>
       </div>
       <div className="mt-1 text-xs text-muted">{formatDate(item.finished_at)}</div>
+      {!ok && item.error ? (
+        <div className="mt-1 line-clamp-2 text-xs text-danger" title={item.error}>
+          {item.error}
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -148,12 +183,12 @@ function EpssList({
               <span className="min-w-0 truncate font-mono">{e.cve_id}</span>
               <span className="shrink-0 text-xs text-muted">
                 {showDelta && e.delta != null ? (
-                  <span className={e.delta >= 0 ? "text-danger" : "text-ok"}>
+                  <span className={e.delta >= 0 ? "text-danger" : "text-ok"} title="Рост EPSS — выше риск">
                     {e.delta >= 0 ? "+" : ""}
-                    {e.delta.toFixed(3)}
+                    {(e.delta * 100).toFixed(2)}%
                   </span>
                 ) : (
-                  e.score.toFixed(3)
+                  `${(e.score * 100).toFixed(2)}%`
                 )}
               </span>
             </Link>
@@ -174,6 +209,7 @@ type Props = {
 };
 
 export function DashboardWidget({ type, data, range, onRange, compact }: Props) {
+  const ops = useOpsDashboard();
   const feed = data?.attention_feed?.length
     ? data.attention_feed
     : [...(data?.recent_kev || []), ...(data?.recent_critical || [])].slice(0, 12);
@@ -212,7 +248,7 @@ export function DashboardWidget({ type, data, range, onRange, compact }: Props) 
     return (
       <Card className="h-full">
         <div className="flex items-center gap-2 text-sm text-muted">
-          <ShieldAlert size={14} /> CISA KEV
+          <ShieldAlert size={14} /> CISA KEV · 7д
         </div>
         <div className="mt-2 font-display text-3xl font-semibold">{data?.kpis.kev_week ?? "—"}</div>
         <div className="mt-2 text-sm text-muted">
@@ -313,6 +349,7 @@ export function DashboardWidget({ type, data, range, onRange, compact }: Props) 
 
   if (type === "activity_chart") {
     const maxAct = Math.max(1, ...(data?.activity.map((a) => a.count) || [1]));
+    const chartH = 140;
     return (
       <Card className="flex h-full flex-col">
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
@@ -331,18 +368,23 @@ export function DashboardWidget({ type, data, range, onRange, compact }: Props) 
             ))}
           </div>
         </div>
-        <div className="flex min-h-0 flex-1 items-end gap-1" data-testid="activity-chart">
+        <div
+          className="flex min-h-0 flex-1 items-end gap-0.5"
+          style={{ minHeight: chartH }}
+          data-testid="activity-chart"
+        >
           {(data?.activity || []).map((a) => {
-            const barPx = Math.max(4, Math.round((a.count / maxAct) * 100));
+            const barPx = Math.max(3, Math.round((a.count / maxAct) * chartH));
             return (
               <div
                 key={a.date}
                 className="group relative flex min-w-0 flex-1 flex-col items-center justify-end"
                 title={`${a.date}: ${a.count}`}
+                style={{ height: chartH }}
               >
                 <div
-                  className="w-full rounded-t-md bg-accent2/90 transition group-hover:bg-accent2"
-                  style={{ height: `${barPx}%`, minHeight: 4 }}
+                  className="w-full rounded-t-md transition hover:brightness-110"
+                  style={{ height: barPx, backgroundColor: "var(--vbx-accent-2)" }}
                 />
               </div>
             );
@@ -406,7 +448,7 @@ export function DashboardWidget({ type, data, range, onRange, compact }: Props) 
   if (type === "quick_links") {
     const links = [
       { href: "/search", label: "Search", icon: Search },
-      { href: "/cveql", label: "CVEQL", icon: Terminal },
+      { href: "/search?mode=cveql", label: "CVEQL", icon: Terminal },
       { href: "/epss", label: "EPSS", icon: TrendingUp },
       { href: "/tickets", label: "Заявки", icon: Ticket },
       { href: "/settings/watchlist", label: "Watchlist", icon: Bookmark },
@@ -445,6 +487,86 @@ export function DashboardWidget({ type, data, range, onRange, compact }: Props) 
         <Link href="/settings/watchlist" className="mt-3 text-sm text-accent2 hover:underline">
           Настроить watchlist →
         </Link>
+      </Card>
+    );
+  }
+
+  if (type === "ops_open_findings") {
+    const by = ops?.open_by_severity || {};
+    const total = Object.values(by).reduce((a, b) => a + b, 0);
+    return (
+      <Card className="flex h-full flex-col overflow-hidden">
+        <div className="flex items-center gap-2 text-sm text-muted">
+          <Crosshair size={14} /> Открытые находки
+        </div>
+        <div className="mt-2 font-display text-3xl font-semibold">{total || "—"}</div>
+        <div className="mt-3 flex flex-wrap gap-2">
+          {Object.entries(by).map(([k, v]) => (
+            <Badge key={k} tone={severityTone(k)}>
+              {k}: {v}
+            </Badge>
+          ))}
+          {!Object.keys(by).length ? <span className="text-sm text-muted">Нет данных</span> : null}
+        </div>
+        <Link href="/findings?status=open" className="mt-auto pt-2 text-xs text-accent2 hover:underline">
+          Все находки →
+        </Link>
+      </Card>
+    );
+  }
+
+  if (type === "ops_scan_success") {
+    const rate = ops?.scan_success_rate_7d;
+    const j = ops?.scan_jobs_7d;
+    return (
+      <Card className="h-full">
+        <div className="flex items-center gap-2 text-sm text-muted">
+          <Radar size={14} /> Успех сканов · 7д
+        </div>
+        <div className="mt-2 font-display text-3xl font-semibold">
+          {rate != null ? `${rate}%` : "—"}
+        </div>
+        <div className="mt-2 text-xs text-muted">
+          ok: {j?.success ?? "—"} · fail: {j?.failed ?? "—"} · всего: {j?.total ?? "—"}
+        </div>
+        <Link href="/scans" className="mt-2 inline-block text-xs text-accent2 hover:underline">
+          Сканы →
+        </Link>
+      </Card>
+    );
+  }
+
+  if (type === "ops_active_jobs") {
+    return (
+      <Card className="h-full">
+        <div className="text-sm text-muted">Активные задания</div>
+        <div className="mt-2 font-display text-3xl font-semibold">{ops?.active_jobs ?? "—"}</div>
+        <Link href="/scans" className="mt-2 inline-block text-xs text-accent2 hover:underline">
+          Очередь →
+        </Link>
+      </Card>
+    );
+  }
+
+  if (type === "ops_top_assets") {
+    const items = ops?.top_assets_by_findings || [];
+    return (
+      <Card className="flex h-full flex-col overflow-hidden">
+        <h2 className="font-display text-base font-semibold">Топ узлов (open)</h2>
+        <ul className="mt-3 min-h-0 flex-1 space-y-2 overflow-auto">
+          {items.map((a) => (
+            <li key={a.asset_id}>
+              <Link
+                href={`/assets/${a.asset_id}`}
+                className="flex items-center justify-between gap-2 rounded-lg border border-border px-2 py-1.5 text-sm hover:border-accent/40"
+              >
+                <span className="truncate">{a.label}</span>
+                <Badge tone="warn">{a.open_findings}</Badge>
+              </Link>
+            </li>
+          ))}
+          {!items.length && <li className="text-sm text-muted">Нет данных</li>}
+        </ul>
       </Card>
     );
   }

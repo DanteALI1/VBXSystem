@@ -86,7 +86,7 @@ export default function LocalCreatePage() {
   }
 
   const fieldClass =
-    "w-full rounded-xl border border-border bg-surface2 px-3 py-2 text-sm outline-none focus:border-accent";
+    "vbx-field";
 
   return (
     <div className="mx-auto max-w-3xl space-y-4">

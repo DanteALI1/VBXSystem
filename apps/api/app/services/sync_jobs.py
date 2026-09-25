@@ -114,6 +114,12 @@ def process_sync_run(db: Session, run_id: int, *, lease_owner: str | None = None
             stats = import_bdu_content(db, content, filename=src.filename or "")
             if int(stats.get("parsed") or 0) == 0:
                 raise RuntimeError("Файл БДУ не содержит распознанных записей")
+        elif run.source == "nuclei_templates_sync":
+            from app.services.nuclei_templates import run_nuclei_templates_sync
+
+            stats = run_nuclei_templates_sync()
+            if stats.get("ok") is False and not stats.get("skipped"):
+                raise RuntimeError(str(stats.get("error") or "nuclei templates sync failed"))
         else:
             raise RuntimeError(f"Unknown source: {run.source}")
 
@@ -122,10 +128,24 @@ def process_sync_run(db: Session, run_id: int, *, lease_owner: str | None = None
             upserted = int(stats.get("upserted") or stats.get("created") or 0)
             if errs and upserted == 0 and stats.get("mode") == "api":
                 raise RuntimeError("; ".join(str(e) for e in errs[:3]))
+            # Watchlist alerts for recently upserted CVE ids (if provided by sync)
+            try:
+                from app.services.watchlist_alerts import maybe_alert_cves
+
+                cve_ids = stats.get("upserted_ids") or stats.get("cve_ids") or []
+                if isinstance(cve_ids, list) and cve_ids:
+                    maybe_alert_cves(db, cve_ids)
+            except Exception as alert_exc:  # noqa: BLE001
+                print(f"[vbx-sync] watchlist alert skipped: {alert_exc}")
 
         run.stats_json = json.dumps(stats, ensure_ascii=False)
-        run.status = "success"
-        run.error = ""
+        # EPSS soft-fallback to mock must not look like a healthy live sync
+        if run.source == "epss" and stats.get("fallback") == "mock":
+            run.status = "failed"
+            run.error = str(stats.get("error") or "EPSS live feed failed; mock fallback")[:4000]
+        else:
+            run.status = "success"
+            run.error = ""
         run.lease_owner = None
         run.leased_at = None
     except Exception as exc:

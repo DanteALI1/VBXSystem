@@ -143,7 +143,10 @@ export default function XdbPage() {
           <h1 className="font-display text-2xl font-semibold tracking-tight">Exploits (XDB)</h1>
           <p className="mt-1 text-sm text-muted">
             Каталог ссылок на PoC/repos (метаданные). Исполняемые эксплойты не хранятся.
-            Live-коннектор внешней ленты — пока недоступен (501); используйте CSV/JSON import.
+            Внешний sync: CSV/JSON import; опционально URL-fetch stub при{" "}
+            <code className="text-xs">VBX_XDB_CONNECTOR_ENABLED=true</code> →{" "}
+            <code className="text-xs">POST /xdb/connector/fetch</code>. Live commercial feed —
+            вне scope (501 на <code className="text-xs">/xdb/connector/stub</code>).
           </p>
         </div>
         <div className="flex flex-wrap gap-2">

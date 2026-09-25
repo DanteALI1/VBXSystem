@@ -272,3 +272,28 @@ SAMPLE_EXPLOITS = [
 
 def seed_sample_exploits(db: Session) -> dict:
     return import_records(db, SAMPLE_EXPLOITS, source="sample")
+
+
+def fetch_feed_url(db: Session, url: str, *, max_bytes: int = 8 * 1024 * 1024) -> dict:
+    """Simple opt-in stub: GET https URL and import JSON list or CSV of exploit metadata."""
+    clean = sanitize_url(url)
+    if not clean:
+        raise ValueError("URL должен быть http(s) без credentials")
+    import urllib.request
+
+    req = urllib.request.Request(
+        clean,
+        headers={"User-Agent": "VBXSystem/0.9 (xdb-connector-stub; metadata-only)"},
+        method="GET",
+    )
+    with urllib.request.urlopen(req, timeout=30) as resp:  # noqa: S310 — URL sanitized to http(s)
+        raw = resp.read(max_bytes + 1)
+        content_type = (resp.headers.get("Content-Type") or "").lower()
+    if len(raw) > max_bytes:
+        raise ValueError(f"Ответ превышает лимит {max_bytes // (1024 * 1024)} МБ")
+    if not raw:
+        raise ValueError("Пустой ответ ленты")
+    text_head = raw[:64].lstrip()
+    if "json" in content_type or text_head.startswith(b"[") or text_head.startswith(b"{"):
+        return import_json_content(db, raw, source="url-fetch")
+    return import_csv_content(db, raw, source="url-fetch")

@@ -141,3 +141,33 @@ def test_users_forbidden_for_viewer(client):
     vtoken = vlogin.json()["access_token"]
     denied = client.get("/users", headers={"Authorization": f"Bearer {vtoken}"})
     assert denied.status_code == 403
+
+
+def test_me_includes_permissions(client):
+    login = client.post("/auth/login", json={"username": "admin", "password": "AdminPass123!"})
+    assert login.status_code == 200
+    token = login.json()["access_token"]
+    me = client.get("/auth/me", headers={"Authorization": f"Bearer {token}"})
+    assert me.status_code == 200
+    body = me.json()
+    assert body["is_super_admin"] is True
+    assert "*" in body["permissions"]
+    assert "roles" in body
+
+
+def test_auth_cookies_follow_profile(monkeypatch):
+    monkeypatch.delenv("VBX_AUTH_COOKIES", raising=False)
+    monkeypatch.setenv("VBX_PROFILE", "prod")
+    get_settings.cache_clear()
+    assert get_settings().auth_cookies_effective() is True
+    monkeypatch.setenv("VBX_PROFILE", "dev")
+    get_settings.cache_clear()
+    assert get_settings().auth_cookies_effective() is False
+    monkeypatch.setenv("VBX_AUTH_COOKIES", "true")
+    get_settings.cache_clear()
+    assert get_settings().auth_cookies_effective() is True
+    monkeypatch.setenv("VBX_AUTH_COOKIES", "false")
+    monkeypatch.setenv("VBX_PROFILE", "prod")
+    get_settings.cache_clear()
+    assert get_settings().auth_cookies_effective() is False
+    get_settings.cache_clear()

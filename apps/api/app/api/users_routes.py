@@ -57,6 +57,8 @@ def create_user(
     )
     roles = db.query(Role).filter(Role.code.in_(payload.roles or ["viewer"])).all()
     user.roles = roles
+    if payload.group_ids:
+        user.groups = db.query(Group).filter(Group.id.in_(payload.group_ids)).all()
     db.add(user)
     db.commit()
     db.refresh(user)

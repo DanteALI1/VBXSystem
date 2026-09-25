@@ -1,9 +1,10 @@
-"""Ticket domain: lifecycle, permissions, notifications hooks."""
+"""Ticket domain: lifecycle, SLA, permissions, notifications hooks."""
 
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
+import re
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from sqlalchemy import or_
@@ -11,6 +12,8 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import user_permissions
 from app.models import (
+    CveRecord,
+    Finding,
     Group,
     NotificationPreference,
     Ticket,
@@ -19,19 +22,83 @@ from app.models import (
     User,
     utcnow,
 )
-from app.services.auth_helpers import get_setting, write_audit
+from app.services.auth_helpers import get_setting, set_setting, write_audit
 from app.services.crypto_secrets import decrypt_secret
 from app.services.smtp_service import send_smtp_message
 
-STATUSES = ("new", "in_progress", "waiting", "resolved", "closed")
+STATUSES = ("new", "in_progress", "waiting", "resolved", "pending_close", "closed")
 
 TRANSITIONS: dict[str, set[str]] = {
-    "new": {"in_progress", "waiting", "closed"},
-    "in_progress": {"waiting", "resolved", "closed"},
-    "waiting": {"in_progress", "resolved", "closed"},
-    "resolved": {"closed", "in_progress"},
+    "new": {"in_progress", "waiting", "pending_close", "closed"},
+    "in_progress": {"waiting", "resolved", "pending_close", "closed"},
+    "waiting": {"in_progress", "resolved", "pending_close", "closed"},
+    "resolved": {"pending_close", "closed", "in_progress"},
+    "pending_close": {"closed", "in_progress"},
     "closed": {"in_progress"},  # reopen — manage only
 }
+
+DEFAULT_SLA_HOURS: dict[str, int] = {
+    "CRITICAL": 24,
+    "HIGH": 72,
+    "MEDIUM": 168,
+    "LOW": 336,
+}
+
+OPEN_STATUSES = frozenset({"new", "in_progress", "waiting", "resolved", "pending_close"})
+
+SETTING_TICKET_AUTO_RULES = "ticket_auto_rules_json"
+
+_SEV_RANK = {"CRITICAL": 5, "HIGH": 4, "MEDIUM": 3, "LOW": 2, "INFO": 1}
+_SEVERITY_GTE_RE = re.compile(
+    r"^\s*severity\s*>=\s*(CRITICAL|HIGH|MEDIUM|LOW|INFO)\s*$",
+    re.IGNORECASE,
+)
+_CVE_MATCH_RE = re.compile(r"^\s*cve_match\s*:\s*(CVE-\d{4}-\d+)\s*$", re.IGNORECASE)
+_IS_KEV_RE = re.compile(r"^\s*is_kev\s*$", re.IGNORECASE)
+
+
+def severity_rank(severity: str | None) -> int:
+    return _SEV_RANK.get((severity or "MEDIUM").upper(), 3)
+
+
+def sla_hours_map(db: Session) -> dict[str, int]:
+    raw = get_setting(db, "ticket_sla_hours_json", "")
+    out = dict(DEFAULT_SLA_HOURS)
+    if raw:
+        try:
+            data = json.loads(raw)
+            if isinstance(data, dict):
+                for k, v in data.items():
+                    try:
+                        out[str(k).upper()] = max(1, int(v))
+                    except (TypeError, ValueError):
+                        continue
+        except json.JSONDecodeError:
+            pass
+    return out
+
+
+def resolve_sla_hours(db: Session, severity: str, explicit: int | None = None) -> int:
+    if explicit is not None and explicit > 0:
+        return int(explicit)
+    return sla_hours_map(db).get((severity or "MEDIUM").upper(), DEFAULT_SLA_HOURS["MEDIUM"])
+
+
+def compute_due_at(created: datetime, hours: int) -> datetime:
+    base = created if created.tzinfo else created.replace(tzinfo=timezone.utc)
+    return base + timedelta(hours=hours)
+
+
+def is_overdue(ticket: Ticket, now: datetime | None = None) -> bool:
+    if ticket.status not in OPEN_STATUSES:
+        return False
+    due = ticket.due_date
+    if not due:
+        return False
+    now = now or utcnow()
+    if due.tzinfo is None:
+        due = due.replace(tzinfo=timezone.utc)
+    return due < now
 
 
 def can_manage(user: User) -> bool:
@@ -57,6 +124,12 @@ def can_view_ticket(user: User, ticket: Ticket) -> bool:
     if ticket.group_id and any(g.id == ticket.group_id for g in user.groups):
         return True
     return False
+
+
+def can_confirm_close(user: User, ticket: Ticket) -> bool:
+    if can_manage(user):
+        return True
+    return ticket.assignee_user_id == user.id
 
 
 def _add_event(
@@ -113,6 +186,304 @@ def _notify_assignee(db: Session, ticket: Ticket, message: str) -> None:
         return
 
 
+def _parse_when(when: Any) -> dict[str, Any]:
+    """Normalize rule.when into {severity_gte?, is_kev?, cve_match?}."""
+    out: dict[str, Any] = {}
+    if when is None:
+        return out
+    if isinstance(when, str):
+        s = when.strip()
+        m = _SEVERITY_GTE_RE.match(s)
+        if m:
+            out["severity_gte"] = m.group(1).upper()
+            return out
+        if _IS_KEV_RE.match(s):
+            out["is_kev"] = True
+            return out
+        m = _CVE_MATCH_RE.match(s)
+        if m:
+            out["cve_match"] = m.group(1).upper()
+            return out
+        # bare CVE id
+        if re.match(r"^CVE-\d{4}-\d+$", s, re.IGNORECASE):
+            out["cve_match"] = s.upper()
+            return out
+        return out
+    if isinstance(when, dict):
+        if when.get("severity_gte"):
+            out["severity_gte"] = str(when["severity_gte"]).upper().strip()
+        # also accept severity_min / "severity>="
+        for alt in ("severity_min", "severity>="):
+            if when.get(alt) and "severity_gte" not in out:
+                out["severity_gte"] = str(when[alt]).upper().strip()
+        if "is_kev" in when:
+            out["is_kev"] = bool(when["is_kev"])
+        if when.get("cve_match"):
+            out["cve_match"] = str(when["cve_match"]).upper().strip()
+        if when.get("min_risk") is not None:
+            try:
+                out["min_risk"] = int(when["min_risk"])
+            except (TypeError, ValueError):
+                pass
+        if when.get("priority"):
+            out["priority"] = str(when["priority"]).strip().lower()
+        return out
+    return out
+
+
+def normalize_auto_rules(raw: Any) -> list[dict[str, Any]]:
+    """Validate and normalize auto-rules list for storage/API."""
+    if not isinstance(raw, list):
+        return []
+    cleaned: list[dict[str, Any]] = []
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
+        action = str(item.get("action") or "create_ticket").strip().lower()
+        if action not in ("create_ticket", "set_status", "set_priority", "assign", "add_tag"):
+            continue
+        when = _parse_when(item.get("when"))
+        if not when:
+            continue
+        enabled = item.get("enabled", True)
+        if isinstance(enabled, str):
+            enabled = enabled.strip().lower() in {"1", "true", "yes", "on"}
+        rule: dict[str, Any] = {
+            "when": when,
+            "action": action,
+            "enabled": bool(enabled),
+        }
+        if action == "set_status":
+            rule["status"] = str(item.get("status") or "triaged").strip().lower()
+        elif action == "set_priority":
+            pri = str(item.get("priority") or "high").strip().lower()
+            if pri not in ("low", "medium", "high", "urgent"):
+                pri = "high"
+            rule["priority"] = pri
+        elif action == "assign":
+            try:
+                rule["assignee_user_id"] = int(item.get("assignee_user_id"))
+            except (TypeError, ValueError):
+                continue
+        elif action == "add_tag":
+            tags = item.get("tags") or item.get("tag")
+            if isinstance(tags, str):
+                tags = [tags]
+            if not isinstance(tags, list) or not tags:
+                continue
+            rule["tags"] = [str(t).strip()[:64] for t in tags if str(t).strip()]
+        cleaned.append(rule)
+    return cleaned
+
+
+def load_auto_rules(db: Session) -> list[dict[str, Any]]:
+    raw = get_setting(db, SETTING_TICKET_AUTO_RULES, "")
+    if not raw:
+        return []
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError:
+        return []
+    return normalize_auto_rules(data)
+
+
+def save_auto_rules(
+    db: Session,
+    rules: list[Any],
+    *,
+    actor_user_id: int | None = None,
+) -> list[dict[str, Any]]:
+    cleaned = normalize_auto_rules(rules)
+    set_setting(db, SETTING_TICKET_AUTO_RULES, json.dumps(cleaned, ensure_ascii=False))
+    if actor_user_id is not None:
+        write_audit(
+            db,
+            action="tickets.auto_rules",
+            actor_user_id=actor_user_id,
+            resource="ticket_auto_rules",
+            details=f"rules={len(cleaned)}",
+        )
+    return cleaned
+
+
+def _finding_cve_ids(finding: Finding) -> list[str]:
+    try:
+        data = json.loads(finding.linked_cve_ids_json or "[]")
+    except Exception:
+        data = []
+    if not isinstance(data, list):
+        return []
+    return [str(c).upper().strip() for c in data if str(c).strip()]
+
+
+def _finding_is_kev(db: Session, cve_ids: list[str]) -> bool:
+    if not cve_ids:
+        return False
+    row = (
+        db.query(CveRecord.id)
+        .filter(CveRecord.id.in_(cve_ids), CveRecord.is_cisa_kev.is_(True))
+        .first()
+    )
+    return row is not None
+
+
+def rule_matches_finding(db: Session, rule: dict[str, Any], finding: Finding) -> bool:
+    when = rule.get("when") if isinstance(rule.get("when"), dict) else _parse_when(rule.get("when"))
+    if not when:
+        return False
+    cve_ids = _finding_cve_ids(finding)
+    if when.get("severity_gte"):
+        if severity_rank(finding.severity) < severity_rank(str(when["severity_gte"])):
+            return False
+    if when.get("is_kev") is True:
+        if not _finding_is_kev(db, cve_ids):
+            return False
+    if when.get("cve_match"):
+        needle = str(when["cve_match"]).upper().strip()
+        if needle not in cve_ids:
+            return False
+    if when.get("min_risk") is not None:
+        try:
+            if int(finding.risk_score or 0) < int(when["min_risk"]):
+                return False
+        except (TypeError, ValueError):
+            return False
+    if when.get("priority"):
+        if (finding.priority or "") != str(when["priority"]).strip().lower():
+            return False
+    return True
+
+
+def resolve_auto_ticket_actor(db: Session, preferred_user_id: int | None = None) -> User | None:
+    if preferred_user_id:
+        u = db.get(User, preferred_user_id)
+        if u and u.status == "active" and can_write(u):
+            return u
+    # Prefer super-admin, then any active user with tickets:write
+    for u in (
+        db.query(User)
+        .filter(User.status == "active")
+        .order_by(User.is_super_admin.desc(), User.id.asc())
+        .all()
+    ):
+        if can_write(u):
+            return u
+    return None
+
+
+def auto_create_ticket_for_finding(
+    db: Session,
+    finding: Finding,
+    *,
+    actor: User | None = None,
+    preferred_user_id: int | None = None,
+) -> Ticket | None:
+    """Create at most one ticket per finding. Returns None if skipped or already linked."""
+    if finding.ticket_id:
+        return None
+    actor = actor or resolve_auto_ticket_actor(db, preferred_user_id)
+    if not actor:
+        return None
+
+    cves = _finding_cve_ids(finding)
+    try:
+        bdus = json.loads(finding.linked_bdu_ids_json or "[]")
+    except Exception:
+        bdus = []
+    if not isinstance(bdus, list):
+        bdus = []
+    linked_cve = cves[0] if cves else None
+    linked_bdu = str(bdus[0]).strip() if bdus else None
+    try:
+        evidence = json.loads(finding.evidence_json or "{}")
+    except Exception:
+        evidence = {}
+    desc_parts = [
+        f"[Авто] Finding #{finding.id} из модуля `{finding.module_id}` (job #{finding.scan_job_id}).",
+    ]
+    if isinstance(evidence, dict) and evidence:
+        desc_parts.append(f"Evidence: {json.dumps(evidence, ensure_ascii=False)[:2000]}")
+    if len(cves) > 1:
+        desc_parts.append("CVEs: " + ", ".join(cves))
+
+    ticket, _warning = create_ticket(
+        db,
+        actor=actor,
+        title=finding.title or f"Finding #{finding.id}",
+        description="\n".join(desc_parts),
+        severity=(finding.severity or "MEDIUM").upper(),
+        linked_cve_id=linked_cve,
+        linked_bdu_id=linked_bdu,
+        warn_duplicate=False,
+    )
+    finding.ticket_id = ticket.id
+    db.commit()
+    db.refresh(finding)
+    write_audit(
+        db,
+        action="tickets.auto_create",
+        actor_user_id=actor.id,
+        resource=f"finding:{finding.id}",
+        details=f"ticket:{ticket.id}",
+    )
+    return ticket
+
+
+def evaluate_auto_rules_for_findings(
+    db: Session,
+    findings: list[Finding],
+    *,
+    preferred_user_id: int | None = None,
+) -> int:
+    """Evaluate auto-rules: create tickets and/or set finding status. Returns tickets created."""
+    rules = [r for r in load_auto_rules(db) if r.get("enabled", True)]
+    if not rules or not findings:
+        return 0
+    actor = resolve_auto_ticket_actor(db, preferred_user_id)
+    created = 0
+    for finding in findings:
+        status = (finding.status or "open").lower()
+        if status not in {"open", "triaged", "new"}:
+            continue
+        matched_rules = [rule for rule in rules if rule_matches_finding(db, rule, finding)]
+        if not matched_rules:
+            continue
+        for rule in matched_rules:
+            action = rule.get("action") or "create_ticket"
+            if action == "set_status":
+                st = str(rule.get("status") or "triaged").strip().lower()
+                if st and finding.status != st:
+                    finding.status = st
+                    db.commit()
+            elif action == "set_priority":
+                pri = str(rule.get("priority") or "high").strip().lower()
+                finding.priority = pri
+                db.commit()
+            elif action == "assign":
+                aid = rule.get("assignee_user_id")
+                if aid:
+                    finding.assignee_user_id = int(aid)
+                    db.commit()
+            elif action == "add_tag":
+                try:
+                    from app.services.projects import finding_tags
+
+                    cur = set(finding_tags(finding))
+                    cur.update(rule.get("tags") or [])
+                    finding.tags_json = json.dumps(sorted(cur), ensure_ascii=False)
+                    db.commit()
+                except Exception:
+                    pass
+            elif action == "create_ticket":
+                if finding.ticket_id or not actor:
+                    continue
+                ticket = auto_create_ticket_for_finding(db, finding, actor=actor)
+                if ticket:
+                    created += 1
+                    break
+    return created
+
+
 def create_ticket(
     db: Session,
     *,
@@ -125,6 +496,7 @@ def create_ticket(
     assignee_user_id: int | None = None,
     group_id: int | None = None,
     due_date: datetime | None = None,
+    sla_hours: int | None = None,
     warn_duplicate: bool = True,
 ) -> tuple[Ticket, str | None]:
     if not can_write(actor):
@@ -150,19 +522,25 @@ def create_ticket(
     if assignee_user_id and not can_manage(actor) and assignee_user_id != actor.id:
         raise PermissionError("Назначать других пользователей может только ticket_manager/admin")
 
+    sev = (severity or "MEDIUM").upper()
+    created = utcnow()
+    hours = resolve_sla_hours(db, sev, sla_hours)
+    due = due_date or compute_due_at(created, hours)
+
     ticket = Ticket(
         title=(title or "").strip() or "Без названия",
         description=description or "",
-        severity=(severity or "MEDIUM").upper(),
+        severity=sev,
         status="new",
         linked_cve_id=linked_cve_id,
         linked_bdu_id=linked_bdu_id,
         assignee_user_id=assignee_user_id,
         group_id=group_id,
         created_by_id=actor.id,
-        due_date=due_date,
-        created_at=utcnow(),
-        updated_at=utcnow(),
+        due_date=due,
+        sla_hours=hours,
+        created_at=created,
+        updated_at=created,
     )
     db.add(ticket)
     db.flush()
@@ -192,6 +570,7 @@ def list_tickets(
     severity: str | None = None,
     vuln: str | None = None,
     group_id: int | None = None,
+    overdue: bool | None = None,
     page: int = 1,
     page_size: int = 25,
 ) -> dict:
@@ -221,9 +600,59 @@ def list_tickets(
     if vuln:
         like = f"%{vuln.strip()}%"
         q = q.filter(or_(Ticket.linked_cve_id.ilike(like), Ticket.linked_bdu_id.ilike(like), Ticket.title.ilike(like)))
+    if overdue:
+        now = utcnow()
+        q = q.filter(
+            Ticket.status.in_(list(OPEN_STATUSES)),
+            Ticket.due_date.isnot(None),
+            Ticket.due_date < now,
+        )
     total = q.count()
     rows = q.order_by(Ticket.updated_at.desc(), Ticket.id.desc()).offset((page - 1) * page_size).limit(page_size).all()
     return {"total": total, "page": page, "page_size": page_size, "results": [_ticket_out(db, t) for t in rows]}
+
+
+def export_tickets_rows(
+    db: Session,
+    user: User,
+    *,
+    status: str | None = None,
+    assignee: str | None = None,
+    severity: str | None = None,
+    vuln: str | None = None,
+    group_id: int | None = None,
+    overdue: bool | None = None,
+    limit: int = 2000,
+) -> list[dict]:
+    limit = min(max(1, limit), 5000)
+    results: list[dict] = []
+    page = 1
+    total = None
+    while len(results) < limit:
+        chunk = list_tickets(
+            db,
+            user,
+            status=status,
+            assignee=assignee,
+            severity=severity,
+            vuln=vuln,
+            group_id=group_id,
+            overdue=overdue,
+            page=page,
+            page_size=100,
+        )
+        if total is None:
+            total = int(chunk.get("total") or 0)
+        batch = chunk.get("results") or []
+        if not batch:
+            break
+        results.extend(batch)
+        if len(results) >= total:
+            break
+        page += 1
+        if page > 60:
+            break
+    return results[:limit]
 
 
 def get_ticket(db: Session, user: User, ticket_id: int) -> dict:
@@ -273,8 +702,14 @@ def transition_status(db: Session, user: User, ticket_id: int, new_status: str) 
     allowed = TRANSITIONS.get(ticket.status, set())
     if new_status not in allowed:
         raise ValueError(f"Переход {ticket.status} → {new_status} запрещён")
-    if new_status == "closed" and not can_manage(user) and ticket.created_by_id != user.id and ticket.assignee_user_id != user.id:
+
+    # Confirm-close: pending_close → closed only assignee or manager
+    if ticket.status == "pending_close" and new_status == "closed":
+        if not can_confirm_close(user, ticket):
+            raise PermissionError("Подтвердить закрытие может только исполнитель или ticket_manager")
+    elif new_status == "closed" and not can_manage(user) and ticket.created_by_id != user.id and ticket.assignee_user_id != user.id:
         raise PermissionError("Закрытие недоступно")
+
     if ticket.status == "closed" and new_status == "in_progress" and not can_manage(user):
         raise PermissionError("Переоткрытие только для ticket_manager/admin")
     if not can_write(user) and not can_manage(user):
@@ -357,6 +792,20 @@ def add_comment(db: Session, user: User, ticket_id: int, body: str) -> TicketCom
     return comment
 
 
+def save_sla_map(db: Session, mapping: dict[str, int], actor_user_id: int | None = None) -> dict[str, int]:
+    cleaned: dict[str, int] = {}
+    for k, v in (mapping or {}).items():
+        try:
+            cleaned[str(k).upper()] = max(1, int(v))
+        except (TypeError, ValueError):
+            continue
+    merged = {**DEFAULT_SLA_HOURS, **cleaned}
+    set_setting(db, "ticket_sla_hours_json", json.dumps(merged))
+    if actor_user_id is not None:
+        write_audit(db, action="tickets.sla_map", actor_user_id=actor_user_id, resource="sla")
+    return merged
+
+
 def _user_name(db: Session, user_id: int | None) -> str:
     if not user_id:
         return ""
@@ -371,6 +820,7 @@ def _ticket_out(db: Session, t: Ticket) -> dict[str, Any]:
     if t.group_id:
         g = db.get(Group, t.group_id)
         group_name = g.name if g else ""
+    due_iso = t.due_date.isoformat() if t.due_date else None
     return {
         "id": t.id,
         "title": t.title,
@@ -385,7 +835,10 @@ def _ticket_out(db: Session, t: Ticket) -> dict[str, Any]:
         "group_name": group_name,
         "created_by_id": t.created_by_id,
         "created_by_name": _user_name(db, t.created_by_id),
-        "due_date": t.due_date.isoformat() if t.due_date else None,
+        "due_date": due_iso,
+        "due_at": due_iso,
+        "sla_hours": t.sla_hours,
+        "overdue": is_overdue(t),
         "created_at": t.created_at.isoformat() if t.created_at else None,
         "updated_at": t.updated_at.isoformat() if t.updated_at else None,
     }

@@ -1,0 +1,13 @@
+# gowitness — HTTP(S) screenshot / web recon (allowlisted URLs only).
+
+id: gowitness
+name: gowitness Screenshot
+version: "0.1.0"
+kind: enrichment
+runtime: python
+entrypoint: worker.py
+offline_capable: true
+capabilities:
+  - web.screenshot
+  - web.recon
+  - finding.v1

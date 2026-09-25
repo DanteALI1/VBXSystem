@@ -1,305 +1,340 @@
 "use client";
 
+import { FormEvent, Suspense, useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { FormEvent, useCallback, useEffect, useState } from "react";
-import { Search as SearchIcon, AlertTriangle } from "lucide-react";
-import { api } from "@/lib/api";
-import { Badge } from "@/components/ui/Badge";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { Download, Play, X } from "lucide-react";
+import { api, apiDownload } from "@/lib/api";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
-import { Input } from "@/components/ui/Input";
-import { formatDate, formatEpss, severityTone } from "@/lib/severity";
+import { formatDate } from "@/lib/severity";
+import {
+  ActiveFilter,
+  FILTER_DEFS,
+  composeCveql,
+  makeFilter,
+} from "@/components/search/filterTypes";
+import { FilterBar } from "@/components/search/FilterBar";
+import { FIELD_LABELS } from "@/components/search/fieldLabels";
+import {
+  SearchHit,
+  TableViewState,
+  defaultViewState,
+  loadViewState,
+  saveViewState,
+} from "@/components/search/columnCatalog";
+import { ColumnViewEditor } from "@/components/search/ColumnViewEditor";
+import { ResultsTable } from "@/components/search/ResultsTable";
 
-type SearchHit = {
-  kind: string;
-  id: string;
-  title: string;
-  description: string;
-  severity: string;
-  cvss_score?: number | null;
-  published_at?: string | null;
-  is_cisa_kev: boolean;
-  has_bdu: boolean;
-  epss?: { score?: number; percentile?: number } | null;
-  href: string;
-};
-
-type SearchResponse = {
+type ExecOut = {
+  query: string;
   total: number;
-  page: number;
-  page_size: number;
+  limit: number;
+  offset: number;
   results: SearchHit[];
+  fields: string[];
 };
 
-const SEVERITIES = ["", "CRITICAL", "HIGH", "MEDIUM", "LOW"];
-const DATE_PRESETS = [
-  { value: "", label: "Любая дата" },
-  { value: "today", label: "Сегодня" },
-  { value: "yesterday", label: "Вчера" },
-  { value: "7d", label: "7 дней" },
-  { value: "30d", label: "30 дней" },
-  { value: "this_week", label: "Эта неделя" },
-  { value: "last_week", label: "Прошлая неделя" },
-];
+const PAGE_SIZE = 50;
 
-export default function SearchPage() {
-  const [q, setQ] = useState("");
-  const [severity, setSeverity] = useState("");
-  const [kev, setKev] = useState(false);
-  const [hasBdu, setHasBdu] = useState(false);
-  const [datePreset, setDatePreset] = useState("");
-  const [sort, setSort] = useState("published");
-  const [page, setPage] = useState(1);
-  const [data, setData] = useState<SearchResponse | null>(null);
-  const [loading, setLoading] = useState(true);
+function SearchWorkspace() {
+  const router = useRouter();
+  const pathname = usePathname();
+  const params = useSearchParams();
+
+  const [filters, setFilters] = useState<ActiveFilter[]>(() => {
+    const q = params.get("query");
+    if (q) return [];
+    const init = makeFilter("severity", { value: "CRITICAL" });
+    return init ? [init] : [];
+  });
+  const [query, setQuery] = useState(
+    () =>
+      params.get("query") ||
+      composeCveql([{ id: "init", field: "severity", op: "=", value: "CRITICAL" }]),
+  );
+  const [showQuery, setShowQuery] = useState(false);
+  const [data, setData] = useState<ExecOut | null>(null);
   const [err, setErr] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [offset, setOffset] = useState(0);
+  const [selected, setSelected] = useState<SearchHit | null>(null);
+  const [view, setView] = useState<TableViewState>(() => defaultViewState());
 
-  const runSearch = useCallback(
-    async (pageNum = 1) => {
-      setLoading(true);
+  useEffect(() => {
+    setView(loadViewState());
+  }, []);
+
+  function updateView(next: TableViewState) {
+    setView(next);
+    saveViewState(next);
+  }
+
+  const syncUrl = useCallback(
+    (q: string) => {
+      const sp = new URLSearchParams();
+      if (q.trim()) sp.set("query", q.trim());
+      const qs = sp.toString();
+      router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
+    },
+    [pathname, router],
+  );
+
+  const run = useCallback(
+    async (q: string, nextOffset = 0) => {
+      setBusy(true);
       setErr(null);
       try {
-        const params = new URLSearchParams();
-        if (q.trim()) params.set("q", q.trim());
-        if (severity) params.set("severity", severity);
-        if (kev) params.set("kev", "true");
-        if (hasBdu) params.set("has_bdu", "true");
-        if (datePreset) params.set("date_preset", datePreset);
-        params.set("sort", sort);
-        params.set("page", String(pageNum));
-        params.set("page_size", "20");
-        const res = await api<SearchResponse>(`/search?${params.toString()}`);
+        const res = await api<ExecOut>("/cveql/execute", {
+          method: "POST",
+          body: JSON.stringify({ query: q, limit: PAGE_SIZE, offset: nextOffset }),
+        });
         setData(res);
-        setPage(pageNum);
+        setOffset(nextOffset);
+        setQuery(q);
+        syncUrl(q);
       } catch (e) {
-        setErr(e instanceof Error ? e.message : "Ошибка поиска");
+        setErr(e instanceof Error ? e.message : "Ошибка");
         setData(null);
       } finally {
-        setLoading(false);
+        setBusy(false);
       }
     },
-    [q, severity, kev, hasBdu, datePreset, sort],
+    [syncUrl],
   );
 
   useEffect(() => {
-    runSearch(1);
-  }, []); // initial load
+    run(query, 0);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
-  function onSubmit(e: FormEvent) {
-    e.preventDefault();
-    runSearch(1);
+  function applyFilters(next: ActiveFilter[]) {
+    setFilters(next);
+    const q = composeCveql(next);
+    setQuery(q);
+    run(q, 0);
   }
 
-  const totalPages = data ? Math.max(1, Math.ceil(data.total / data.page_size)) : 1;
+  function onSubmitQuery(e: FormEvent) {
+    e.preventDefault();
+    run(query, 0);
+  }
+
+  const totalPages = data ? Math.max(1, Math.ceil(data.total / PAGE_SIZE)) : 1;
+  const page = Math.floor(offset / PAGE_SIZE) + 1;
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <h1 className="vbx-page-title">Security Vulnerability Database</h1>
-          <p className="vbx-page-sub">
-            Поиск CVE, БДУ ФСТЭК и локальных ID. Строки CISA KEV выделены янтарным акцентом.
-          </p>
+    <div className="space-y-3" data-testid="search-page">
+      <div className="flex flex-wrap items-baseline justify-between gap-2">
+        <div className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5">
+          <h1 className="font-display text-lg font-semibold tracking-tight">
+            Security Vulnerability Database
+          </h1>
+          <span className="text-xs text-muted">
+            {data?.total ?? "—"} совпадений
+          </span>
         </div>
         <Link
           href="/local/new"
-          className="inline-flex items-center rounded-xl bg-accent px-3 py-2 text-sm font-medium text-white hover:bg-accent2"
+          className="text-xs font-medium text-accent2 hover:underline"
         >
           + Локальная запись
         </Link>
       </div>
 
-      <form onSubmit={onSubmit} className="flex flex-col gap-3 lg:flex-row lg:items-end">
-        <div className="relative min-w-0 flex-1">
-          <SearchIcon
-            size={16}
-            className="pointer-events-none absolute left-3 top-[42px] z-10 -translate-y-1/2 text-muted"
+      <div className="rounded-lg border border-border bg-surface2/40">
+        <form
+          onSubmit={onSubmitQuery}
+          className="flex items-center gap-1.5 border-b border-border px-2 py-1"
+        >
+          <span className="shrink-0 select-none px-1 text-[10px] font-medium uppercase tracking-wider text-muted">
+            CVEQL
+          </span>
+          <input
+            className="min-w-0 flex-1 bg-transparent py-1.5 font-mono text-xs outline-none placeholder:text-muted/60"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            spellCheck={false}
+            aria-label="CVEQL запрос"
+            data-testid="cveql-editor"
+            placeholder='severity = "CRITICAL" and cvss_score >= 9'
           />
-          <Input
-            label="Запрос"
-            className="pl-9"
-            value={q}
-            onChange={(e) => setQ(e.target.value)}
-            placeholder="CVE-2024-0001, BDU:2024-00002, keyword…"
-            aria-label="Поисковый запрос"
-          />
-        </div>
-        <label className="block text-sm lg:w-44">
-          <span className="mb-1.5 block text-muted">Сортировка</span>
-          <select
-            className="w-full rounded-xl border border-border bg-surface2 px-3 py-2.5 text-sm text-text"
-            value={sort}
-            onChange={(e) => setSort(e.target.value)}
+          <button
+            type="submit"
+            disabled={busy}
+            className="inline-flex h-7 shrink-0 items-center gap-1 rounded-md bg-accent px-2 text-xs font-medium text-white hover:bg-accent2 disabled:opacity-50"
+            title="Выполнить"
           >
-            <option value="published">По дате</option>
-            <option value="cvss">По CVSS</option>
-            <option value="epss">По EPSS</option>
-            <option value="id">По ID</option>
-          </select>
-        </label>
-        <Button type="submit" disabled={loading}>
-          {loading ? "Поиск…" : "Найти"}
-        </Button>
-      </form>
+            <Play size={12} />
+            {busy ? "…" : "Найти"}
+          </button>
+          <button
+            type="button"
+            className="inline-flex h-7 shrink-0 items-center rounded-md px-1.5 text-xs text-muted hover:bg-surface hover:text-text"
+            onClick={() => setShowQuery((v) => !v)}
+            title="Справка CVEQL"
+          >
+            ?
+          </button>
+        </form>
 
-      <div className="grid gap-6 lg:grid-cols-[220px_1fr]">
-        <aside className="space-y-4" aria-label="Фильтры поиска">
-          <Card className="space-y-4 p-4">
-            <div className="text-sm font-medium">Фильтры</div>
-            <label className="block text-sm">
-              <span className="mb-1.5 block text-muted">Severity</span>
-              <select
-                className="w-full rounded-xl border border-border bg-surface2 px-3 py-2 text-sm"
-                value={severity}
-                onChange={(e) => setSeverity(e.target.value)}
-              >
-                {SEVERITIES.map((s) => (
-                  <option key={s || "any"} value={s}>
-                    {s || "Любая"}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="block text-sm">
-              <span className="mb-1.5 block text-muted">Дата</span>
-              <select
-                className="w-full rounded-xl border border-border bg-surface2 px-3 py-2 text-sm"
-                value={datePreset}
-                onChange={(e) => setDatePreset(e.target.value)}
-              >
-                {DATE_PRESETS.map((d) => (
-                  <option key={d.value || "any"} value={d.value}>
-                    {d.label}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="flex items-center gap-2 text-sm">
-              <input
-                type="checkbox"
-                checked={kev}
-                onChange={(e) => setKev(e.target.checked)}
-                className="rounded border-border"
-              />
-              Только CISA KEV
-            </label>
-            <label className="flex items-center gap-2 text-sm">
-              <input
-                type="checkbox"
-                checked={hasBdu}
-                onChange={(e) => setHasBdu(e.target.checked)}
-                className="rounded border-border"
-              />
-              Есть БДУ
-            </label>
-            <Button type="button" variant="secondary" className="w-full" onClick={() => runSearch(1)}>
-              Применить
-            </Button>
-          </Card>
-        </aside>
+        {showQuery && (
+          <div className="border-b border-border px-3 py-2 text-[11px] leading-relaxed text-muted">
+            Поля: {FILTER_DEFS.map((d) => d.field).join(", ")}. Операторы: = != &gt; &gt;= &lt; &lt;= ~
+            in and or. AND сильнее OR. Между чипами — AND / OR.
+          </div>
+        )}
 
-        <div className="min-w-0 space-y-3">
-          {err && (
-            <Card className="border-danger/40 text-sm text-danger" role="alert">
-              {err}
-            </Card>
-          )}
-          {loading && !data && (
-            <Card className="text-sm text-muted">Загрузка результатов…</Card>
-          )}
-          {data && (
-            <div className="flex items-center justify-between text-sm text-muted">
-              <span>
-                Найдено: <span className="text-text">{data.total}</span>
-              </span>
-              <span>
-                Стр. {data.page} / {totalPages}
-              </span>
-            </div>
-          )}
-          {data && data.results.length === 0 && !loading && (
-            <Card className="text-sm text-muted">Ничего не найдено. Измените запрос или фильтры.</Card>
-          )}
-          <ul className="divide-y divide-border/70 overflow-hidden rounded-2xl border border-border bg-surface/90" data-testid="search-results">
-            {data?.results.map((hit) => (
-              <li key={`${hit.kind}-${hit.id}`}>
-                <Link
-                  href={hit.href}
-                  className={`block px-4 py-3.5 transition hover:bg-surface2/80 ${
-                    hit.is_cisa_kev ? "vbx-row-kev" : ""
-                  }`}
-                  data-testid={`hit-${hit.id}`}
-                  data-kev={hit.is_cisa_kev ? "true" : "false"}
-                >
-                  <div className="flex flex-wrap items-start justify-between gap-2">
-                    <div className="min-w-0">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <span className="font-display font-semibold tracking-tight text-accent2">
-                          {hit.id}
-                        </span>
-                        {hit.is_cisa_kev && (
-                          <Badge tone="warn" aria-label="CISA Known Exploited Vulnerability">
-                            <AlertTriangle size={10} className="mr-1" aria-hidden />
-                            KEV
-                          </Badge>
-                        )}
-                        {hit.has_bdu && (
-                          <Badge tone="accent" aria-label="Есть запись БДУ">
-                            BDU
-                          </Badge>
-                        )}
-                        {hit.kind === "bdu" && (
-                          <Badge tone="accent" aria-label="Запись БДУ">
-                            БДУ
-                          </Badge>
-                        )}
-                        {hit.kind === "local" && (
-                          <Badge tone="accent" aria-label="Локальная запись">
-                            LOCAL
-                          </Badge>
-                        )}
-                        {hit.severity && (
-                          <Badge tone={severityTone(hit.severity)} aria-label={`Severity ${hit.severity}`}>
-                            {hit.severity}
-                            {hit.cvss_score != null ? ` ${hit.cvss_score}` : ""}
-                          </Badge>
-                        )}
-                        {hit.epss?.score != null && (
-                          <Badge tone="neutral" aria-label={`EPSS ${formatEpss(hit.epss)}`}>
-                            EPSS {formatEpss(hit.epss)}
-                          </Badge>
-                        )}
-                      </div>
-                      <p className="mt-1 line-clamp-2 text-sm text-muted">{hit.description || hit.title}</p>
-                    </div>
-                    <time className="shrink-0 text-xs text-muted">{formatDate(hit.published_at)}</time>
-                  </div>
-                </Link>
-              </li>
-            ))}
-          </ul>
-          {data && totalPages > 1 && (
-            <div className="flex gap-2">
-              <Button
-                type="button"
-                variant="secondary"
-                disabled={page <= 1 || loading}
-                onClick={() => runSearch(page - 1)}
-              >
-                Назад
-              </Button>
-              <Button
-                type="button"
-                variant="secondary"
-                disabled={page >= totalPages || loading}
-                onClick={() => runSearch(page + 1)}
-              >
-                Вперёд
-              </Button>
-            </div>
-          )}
+        <div className="px-2 py-1.5">
+          <FilterBar
+            layout="bar"
+            filters={filters}
+            onChange={setFilters}
+            onApply={applyFilters}
+            showPreview
+          />
         </div>
       </div>
+
+      <div className="min-w-0 space-y-2">
+        {err && (
+          <Card className="border-danger/40 text-sm text-danger" role="alert" data-testid="cveql-error">
+            {err}
+          </Card>
+        )}
+
+        <div className="flex flex-wrap items-center justify-between gap-2 text-sm text-muted">
+          <span>
+            Результатов: <span className="text-text">{data?.total ?? "—"}</span>
+          </span>
+          <div className="flex items-center gap-2">
+            <Button
+              type="button"
+              variant="secondary"
+              disabled={!query.trim() || busy}
+              onClick={() => {
+                void apiDownload("/cveql/export", {
+                  method: "POST",
+                  body: JSON.stringify({ query, limit: 2000 }),
+                  filename: "cveql-export.csv",
+                }).catch((e) => setErr(e instanceof Error ? e.message : "Ошибка экспорта"));
+              }}
+              title="Экспорт CSV (до 2000 строк)"
+            >
+              <Download size={14} />
+              CSV
+            </Button>
+            <span className="font-mono text-xs">{data?.query}</span>
+            <ColumnViewEditor view={view} onChange={updateView} />
+          </div>
+        </div>
+
+        <ResultsTable
+          rows={data?.results || []}
+          view={view}
+          onChange={updateView}
+          selectedId={selected?.id}
+          onSelect={setSelected}
+          empty={Boolean(data && !data.results.length && !busy)}
+        />
+
+        {data && totalPages > 1 && (
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              type="button"
+              variant="secondary"
+              disabled={offset <= 0 || busy}
+              onClick={() => run(query, Math.max(0, offset - PAGE_SIZE))}
+            >
+              Назад
+            </Button>
+            <span className="text-sm text-muted">
+              Стр. {page} / {totalPages}
+            </span>
+            <Button
+              type="button"
+              variant="secondary"
+              disabled={offset + PAGE_SIZE >= data.total || busy}
+              onClick={() => run(query, offset + PAGE_SIZE)}
+            >
+              Вперёд
+            </Button>
+            <span className="text-xs text-muted">по {PAGE_SIZE} записей</span>
+          </div>
+        )}
+      </div>
+
+      {selected && (
+        <Card className="space-y-3" data-testid="search-detail">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <h2 className="font-display text-lg font-semibold">{selected.id}</h2>
+              <p className="mt-1 text-sm text-muted">{selected.title || selected.description}</p>
+            </div>
+            <div className="flex gap-2">
+              <Link href={selected.href} className="text-sm text-accent2 hover:underline">
+                Открыть карточку
+              </Link>
+              <button
+                type="button"
+                className="text-muted hover:text-text"
+                onClick={() => setSelected(null)}
+                aria-label="Закрыть"
+              >
+                <X size={16} />
+              </button>
+            </div>
+          </div>
+          <div className="grid gap-2 text-sm md:grid-cols-3">
+            <div>
+              <span className="text-muted">{FIELD_LABELS["affected.app"]}: </span>
+              {selected.affected_app || (selected.affected_apps || []).join(", ") || "—"}
+            </div>
+            <div>
+              <span className="text-muted">{FIELD_LABELS["affected.os"]}: </span>
+              {selected.affected_os || (selected.affected_oses || []).join(", ") || "—"}
+            </div>
+            <div>
+              <span className="text-muted">{FIELD_LABELS["affected.version"]}: </span>
+              {selected.affected_version ||
+                (selected.affected_versions || []).join("; ") ||
+                "—"}
+            </div>
+            <div>
+              <span className="text-muted">{FIELD_LABELS.severity}: </span>
+              {selected.severity || "—"}
+            </div>
+            <div>
+              <span className="text-muted">{FIELD_LABELS.cvss_score}: </span>
+              {selected.cvss_score ?? "—"} {selected.cvss_vector}
+            </div>
+            <div>
+              <span className="text-muted">{FIELD_LABELS["epss_scores.score"]}: </span>
+              {selected.epss_score != null ? (selected.epss_score * 100).toFixed(2) + "%" : "—"}
+            </div>
+            <div>
+              <span className="text-muted">{FIELD_LABELS.published}: </span>
+              {formatDate(selected.published)}
+            </div>
+            <div>
+              <span className="text-muted">{FIELD_LABELS.modified}: </span>
+              {formatDate(selected.modified)}
+            </div>
+            <div>
+              <span className="text-muted">{FIELD_LABELS.source}: </span>
+              {selected.source || "—"}
+            </div>
+          </div>
+        </Card>
+      )}
     </div>
+  );
+}
+
+export default function SearchPage() {
+  return (
+    <Suspense fallback={<div className="text-sm text-muted">Загрузка…</div>}>
+      <SearchWorkspace />
+    </Suspense>
   );
 }

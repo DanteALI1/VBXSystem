@@ -1,0 +1,221 @@
+# Optional scanner sidecars for VBXSystem.
+# Usage (from repo root, with core stack already defined in docker-compose.yml):
+#
+#   docker compose -f docker-compose.yml -f docker-compose.scanners.yml --profile nmap up -d --build
+#   docker compose -f docker-compose.yml -f docker-compose.scanners.yml --profile shodan up -d --build
+#   docker compose -f docker-compose.yml -f docker-compose.scanners.yml --profile zap up -d --build
+#   docker compose -f docker-compose.yml -f docker-compose.scanners.yml --profile nuclei up -d --build
+#   docker compose -f docker-compose.yml -f docker-compose.scanners.yml --profile gowitness up -d --build
+#   docker compose -f docker-compose.yml -f docker-compose.scanners.yml --profile discovery up -d --build
+#
+# Requires Core /internal/modules/* and matching VBX_MODULE_TOKEN.
+#
+# Artifacts: gowitness_data is mounted on API at /app/artifacts/gowitness (same volume
+# as worker /data). Rebuild API after pulling so evidence screenshots are readable:
+#   docker compose -f docker-compose.yml -f docker-compose.scanners.yml --profile gowitness up -d --build api scanner-gowitness
+
+networks:
+  default:
+    name: vbxsystem_default
+  vbx_scan:
+    name: vbx_scan
+    driver: bridge
+
+services:
+  scanner-nmap:
+    profiles: ["nmap"]
+    build:
+      context: .
+      dockerfile: modules/nmap/Dockerfile
+    restart: unless-stopped
+    environment:
+      VBX_API_INTERNAL_URL: ${VBX_API_INTERNAL_URL:-http://api:8000}
+      VBX_MODULE_TOKEN: ${VBX_MODULE_TOKEN:-dev-module-token-change-me}
+      VBX_SCAN_ALLOWLIST: ${VBX_SCAN_ALLOWLIST:-127.0.0.1,host.docker.internal,scan-target}
+      VBX_NMAP_PORTS: ${VBX_NMAP_PORTS:-22,80,443,8000,3000}
+      VBX_SCAN_POLL_INTERVAL: ${VBX_SCAN_POLL_INTERVAL:-5}
+      VBX_LOG_LEVEL: ${VBX_LOG_LEVEL:-INFO}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      api:
+        condition: service_healthy
+    networks:
+      - default
+      - vbx_scan
+    mem_limit: ${VBX_SCANNER_MEM_LIMIT:-512m}
+
+  scanner-shodan:
+    profiles: ["shodan"]
+    build:
+      context: .
+      dockerfile: modules/shodan/Dockerfile
+    restart: unless-stopped
+    environment:
+      VBX_API_INTERNAL_URL: ${VBX_API_INTERNAL_URL:-http://api:8000}
+      VBX_MODULE_TOKEN: ${VBX_MODULE_TOKEN:-dev-module-token-change-me}
+      VBX_SCAN_ALLOWLIST: ${VBX_SCAN_ALLOWLIST:-127.0.0.1,host.docker.internal,scan-target,8.8.8.8}
+      VBX_SHODAN_API_KEY: ${VBX_SHODAN_API_KEY:-}
+      VBX_SHODAN_MOCK: ${VBX_SHODAN_MOCK:-false}
+      VBX_SCAN_POLL_INTERVAL: ${VBX_SCAN_POLL_INTERVAL:-5}
+      VBX_LOG_LEVEL: ${VBX_LOG_LEVEL:-INFO}
+    depends_on:
+      api:
+        condition: service_healthy
+    networks:
+      - default
+    mem_limit: ${VBX_SCANNER_MEM_LIMIT:-512m}
+
+  scanner-zap:
+    profiles: ["zap"]
+    build:
+      context: .
+      dockerfile: modules/zap/Dockerfile
+    restart: unless-stopped
+    environment:
+      VBX_API_INTERNAL_URL: ${VBX_API_INTERNAL_URL:-http://api:8000}
+      VBX_MODULE_TOKEN: ${VBX_MODULE_TOKEN:-dev-module-token-change-me}
+      VBX_SCAN_ALLOWLIST: ${VBX_SCAN_ALLOWLIST:-127.0.0.1,host.docker.internal,scan-target,http://scan-target,https://scan-target}
+      VBX_ZAP_TIMEOUT: ${VBX_ZAP_TIMEOUT:-300}
+      VBX_ZAP_MOCK: ${VBX_ZAP_MOCK:-false}
+      VBX_ZAP_API_URL: ${VBX_ZAP_API_URL:-http://127.0.0.1:8080}
+      VBX_ZAP_START_DAEMON: ${VBX_ZAP_START_DAEMON:-true}
+      VBX_ZAP_API_KEY: ${VBX_ZAP_API_KEY:-}
+      VBX_SCAN_POLL_INTERVAL: ${VBX_SCAN_POLL_INTERVAL:-5}
+      VBX_LOG_LEVEL: ${VBX_LOG_LEVEL:-INFO}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      api:
+        condition: service_healthy
+      scan-target:
+        condition: service_started
+    networks:
+      - default
+      - vbx_scan
+    volumes:
+      - zap_wrk:/zap/wrk
+    mem_limit: ${VBX_ZAP_MEM_LIMIT:-1g}
+    # Base zap-stable image checks http://localhost:$ZAP_PORT — we run a Python
+    # worker, not the ZAP daemon, so override to process liveness.
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "python3 -c \"import pathlib; assert pathlib.Path('/proc/1/cmdline').read_bytes()\"" ,
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
+  scanner-nuclei:
+    profiles: ["nuclei"]
+    build:
+      context: .
+      dockerfile: modules/nuclei/Dockerfile
+    restart: unless-stopped
+    environment:
+      VBX_API_INTERNAL_URL: ${VBX_API_INTERNAL_URL:-http://api:8000}
+      VBX_MODULE_TOKEN: ${VBX_MODULE_TOKEN:-dev-module-token-change-me}
+      VBX_SCAN_ALLOWLIST: ${VBX_SCAN_ALLOWLIST:-127.0.0.1,host.docker.internal,scan-target,http://scan-target,https://scan-target}
+      VBX_NUCLEI_TEMPLATES: ${VBX_NUCLEI_TEMPLATES:-/app/artifacts/nuclei-templates}
+      VBX_NUCLEI_RATE_LIMIT: ${VBX_NUCLEI_RATE_LIMIT:-150}
+      VBX_NUCLEI_TIMEOUT: ${VBX_NUCLEI_TIMEOUT:-900}
+      VBX_NUCLEI_MOCK: ${VBX_NUCLEI_MOCK:-false}
+      VBX_SCAN_POLL_INTERVAL: ${VBX_SCAN_POLL_INTERVAL:-5}
+      VBX_LOG_LEVEL: ${VBX_LOG_LEVEL:-INFO}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      api:
+        condition: service_healthy
+      scan-target:
+        condition: service_started
+    networks:
+      - default
+      - vbx_scan
+    volumes:
+      # Same official + custom packs as API (read-only for the sidecar)
+      - nuclei_templates:/app/artifacts/nuclei-templates:ro
+      - nuclei_custom:/app/artifacts/nuclei-custom:ro
+      # Optional shared export dir; API mounts same volume at /app/artifacts/nuclei
+      - nuclei_data:/data
+    mem_limit: ${VBX_NUCLEI_MEM_LIMIT:-1g}
+
+  scanner-gowitness:
+    profiles: ["gowitness"]
+    build:
+      context: .
+      dockerfile: modules/gowitness/Dockerfile
+    restart: unless-stopped
+    environment:
+      VBX_API_INTERNAL_URL: ${VBX_API_INTERNAL_URL:-http://api:8000}
+      VBX_MODULE_TOKEN: ${VBX_MODULE_TOKEN:-dev-module-token-change-me}
+      VBX_SCAN_ALLOWLIST: ${VBX_SCAN_ALLOWLIST:-127.0.0.1,host.docker.internal,scan-target,http://scan-target,https://scan-target}
+      VBX_GOWITNESS_TIMEOUT: ${VBX_GOWITNESS_TIMEOUT:-60}
+      VBX_GOWITNESS_RESOLUTION: ${VBX_GOWITNESS_RESOLUTION:-1440x900}
+      VBX_GOWITNESS_MOCK: ${VBX_GOWITNESS_MOCK:-false}
+      VBX_GOWITNESS_DATA_DIR: /data
+      VBX_SCAN_POLL_INTERVAL: ${VBX_SCAN_POLL_INTERVAL:-5}
+      VBX_LOG_LEVEL: ${VBX_LOG_LEVEL:-INFO}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      api:
+        condition: service_healthy
+      scan-target:
+        condition: service_started
+    networks:
+      - default
+      - vbx_scan
+    volumes:
+      # Same volume as API /app/artifacts/gowitness — ingest copies into module/job layout
+      - gowitness_data:/data
+    mem_limit: ${VBX_GOWITNESS_MEM_LIMIT:-1g}
+    shm_size: ${VBX_GOWITNESS_SHM_SIZE:-256mb}
+
+  scanner-discovery:
+    profiles: ["discovery"]
+    build:
+      context: .
+      dockerfile: modules/discovery/Dockerfile
+    restart: unless-stopped
+    environment:
+      VBX_API_INTERNAL_URL: ${VBX_API_INTERNAL_URL:-http://api:8000}
+      VBX_MODULE_TOKEN: ${VBX_MODULE_TOKEN:-dev-module-token-change-me}
+      VBX_SCAN_ALLOWLIST: ${VBX_SCAN_ALLOWLIST:-127.0.0.1,host.docker.internal,scan-target,10.0.0.0/8}
+      VBX_DISCOVERY_MOCK: ${VBX_DISCOVERY_MOCK:-false}
+      VBX_DISCOVERY_CONNECT_TIMEOUT: ${VBX_DISCOVERY_CONNECT_TIMEOUT:-1.0}
+      VBX_DISCOVERY_MAX_HOSTS: ${VBX_DISCOVERY_MAX_HOSTS:-256}
+      VBX_SCAN_POLL_INTERVAL: ${VBX_SCAN_POLL_INTERVAL:-5}
+      VBX_LOG_LEVEL: ${VBX_LOG_LEVEL:-INFO}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      api:
+        condition: service_healthy
+      scan-target:
+        condition: service_started
+    networks:
+      - default
+      - vbx_scan
+    mem_limit: ${VBX_SCANNER_MEM_LIMIT:-512m}
+
+  # Local demo target: nginx listening on 80 inside vbx_scan network.
+  scan-target:
+    profiles: ["nmap", "zap", "nuclei", "gowitness", "discovery"]
+    image: nginx:alpine
+    restart: unless-stopped
+    networks:
+      vbx_scan:
+        aliases:
+          - scan-target
+    mem_limit: 128m
+
+volumes:
+  zap_wrk:
+  gowitness_data:
+  nuclei_templates:
+  nuclei_custom:
+  nuclei_data:

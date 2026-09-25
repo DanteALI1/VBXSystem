@@ -30,6 +30,11 @@ class WatchlistOut(BaseModel):
     created_at: str | None = None
 
 
+class WatchStatusOut(BaseModel):
+    watching: bool = False
+    entry_id: int | None = None
+
+
 def _can_write(user: User) -> bool:
     if user.is_super_admin:
         return True
@@ -43,6 +48,18 @@ def get_watchlist(
     user: User = Depends(require_permissions("vuln:read")),
 ) -> list[WatchlistOut]:
     return [WatchlistOut(**wl.entry_to_out(e)) for e in wl.list_entries(db, user)]
+
+
+@router.get("/cve/{cve_id}", response_model=WatchStatusOut)
+def get_cve_watch(
+    cve_id: str,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_permissions("vuln:read")),
+) -> WatchStatusOut:
+    entry = wl.find_cve_entry(db, user, cve_id)
+    if not entry:
+        return WatchStatusOut(watching=False)
+    return WatchStatusOut(watching=True, entry_id=entry.id)
 
 
 @router.post("", response_model=WatchlistOut)

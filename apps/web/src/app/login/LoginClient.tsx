@@ -35,6 +35,9 @@ export default function LoginPage() {
   const [tempToken, setTempToken] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [sso, setSso] = useState<{ enabled: boolean; staging: boolean; button_label: string } | null>(
+    null,
+  );
   const demoPrefill = process.env.NEXT_PUBLIC_VBX_DEMO === "1";
 
   useEffect(() => {
@@ -47,6 +50,18 @@ export default function LoginPage() {
       .then((d) => d && setBrand(d))
       .catch(() => undefined);
   }, []);
+
+  useEffect(() => {
+    fetch("/api/auth/sso/status")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => d && setSso(d))
+      .catch(() => undefined);
+  }, []);
+
+  useEffect(() => {
+    const errParam = params.get("error");
+    if (errParam) setError(errParam);
+  }, [params]);
 
   async function finish(data: LoginResult) {
     if (data.requires_2fa && data.temp_token) {
@@ -223,6 +238,26 @@ export default function LoginPage() {
                 {loading ? "Проверка…" : tempToken ? "Подтвердить" : "Войти"}
               </Button>
             </form>
+            {!tempToken && sso?.enabled ? (
+              <div className="mt-4 space-y-3">
+                <div className="flex items-center gap-3 text-xs text-muted">
+                  <span className="h-px flex-1 bg-border" />
+                  или
+                  <span className="h-px flex-1 bg-border" />
+                </div>
+                <a
+                  href={`/api/auth/sso/login?next=${encodeURIComponent(next)}`}
+                  className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-border bg-surface2 px-4 py-2.5 text-sm font-medium text-text transition hover:border-accent/40 hover:bg-surface"
+                >
+                  {sso.button_label || "Войти через SSO"}
+                  {sso.staging ? (
+                    <span className="rounded-md bg-warn/15 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-warn">
+                      staging
+                    </span>
+                  ) : null}
+                </a>
+              </div>
+            ) : null}
             <p className="mt-5 text-center text-sm text-muted">
               Нет аккаунта?{" "}
               <Link href="/register" className="text-accent2 hover:underline">

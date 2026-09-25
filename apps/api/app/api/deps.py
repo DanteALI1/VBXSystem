@@ -74,7 +74,7 @@ def get_current_user(
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Недействительный токен")
         return user
 
-    if settings.vbx_auth_cookies:
+    if settings.auth_cookies_effective():
         cookie = request.cookies.get(settings.vbx_access_cookie)
         if cookie:
             user = _user_from_access_jwt(db, cookie)

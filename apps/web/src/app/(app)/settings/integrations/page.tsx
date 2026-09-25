@@ -34,7 +34,18 @@ type Integrations = {
     issuer_url: string;
     authorize_url: string;
     token_url: string;
+    userinfo_url: string;
+    redirect_uri: string;
+    scopes: string;
     staging: boolean;
+    button_label: string;
+    role_map: Record<string, string>;
+  };
+  telegram: {
+    enabled: boolean;
+    bot_token_masked: string;
+    bot_token_configured: boolean;
+    chat_id: string;
   };
 };
 
@@ -44,12 +55,16 @@ export default function IntegrationsPage() {
   const [smtpPass, setSmtpPass] = useState("");
   const [ldapPass, setLdapPass] = useState("");
   const [ssoSecret, setSsoSecret] = useState("");
+  const [tgToken, setTgToken] = useState("");
+  const [roleMapText, setRoleMapText] = useState("{}");
   const [testTo, setTestTo] = useState("admin@example.local");
   const [msg, setMsg] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
 
   async function load() {
-    setData(await api<Integrations>("/settings/integrations"));
+    const res = await api<Integrations>("/settings/integrations");
+    setData(res);
+    setRoleMapText(JSON.stringify(res.sso.role_map || {}, null, 2));
   }
 
   useEffect(() => {
@@ -132,15 +147,37 @@ export default function IntegrationsPage() {
     e.preventDefault();
     if (!data) return;
     try {
+      let role_map: Record<string, string> = {};
+      try {
+        role_map = JSON.parse(roleMapText || "{}");
+      } catch {
+        throw new Error("role_map: невалидный JSON");
+      }
       const res = await api<{ message: string }>("/settings/integrations/sso", {
         method: "PUT",
-        body: JSON.stringify({ ...data.sso, client_secret: ssoSecret || undefined }),
+        body: JSON.stringify({
+          ...data.sso,
+          role_map,
+          client_secret: ssoSecret || undefined,
+        }),
       });
       setMsg(res.message);
       setSsoSecret("");
       await load();
     } catch (ex) {
       setErr(ex instanceof Error ? ex.message : "Ошибка");
+    }
+  }
+
+  async function testSso() {
+    try {
+      const res = await api<{ message: string }>("/settings/integrations/sso/test", {
+        method: "POST",
+        body: "{}",
+      });
+      setMsg(res.message);
+    } catch (ex) {
+      setErr(ex instanceof Error ? ex.message : "Ошибка SSO");
     }
   }
 
@@ -159,11 +196,11 @@ export default function IntegrationsPage() {
           <Input label="From" value={data.smtp.from_addr} onChange={(e) => setData({ ...data, smtp: { ...data.smtp, from_addr: e.target.value } })} />
           <Input label="Username" value={data.smtp.username} onChange={(e) => setData({ ...data, smtp: { ...data.smtp, username: e.target.value } })} />
           <Input label={`Password ${data.smtp.password_masked ? `(${data.smtp.password_masked})` : ""}`} type="password" value={smtpPass} onChange={(e) => setSmtpPass(e.target.value)} />
-          <label className="flex items-center gap-2 text-sm self-end pb-2">
+          <label className="flex items-center gap-2 self-end pb-2 text-sm">
             <input type="checkbox" checked={data.smtp.use_tls} onChange={(e) => setData({ ...data, smtp: { ...data.smtp, use_tls: e.target.checked } })} />
             STARTTLS
           </label>
-          <div className="md:col-span-2 flex flex-wrap gap-2">
+          <div className="flex flex-wrap gap-2 md:col-span-2">
             <Button type="submit">Сохранить SMTP</Button>
             <Input label="Test to" value={testTo} onChange={(e) => setTestTo(e.target.value)} />
             <Button type="button" variant="secondary" onClick={testSmtp}>
@@ -196,7 +233,7 @@ export default function IntegrationsPage() {
             <input type="checkbox" checked={data.ldap.mock_mode} onChange={(e) => setData({ ...data, ldap: { ...data.ldap, mock_mode: e.target.checked } })} />
             Mock mode (demo groups)
           </label>
-          <div className="md:col-span-2 flex gap-2">
+          <div className="flex gap-2 md:col-span-2">
             <Button type="submit">Сохранить LDAP</Button>
             <Button type="button" variant="secondary" onClick={syncLdap}>
               Sync groups
@@ -207,29 +244,184 @@ export default function IntegrationsPage() {
 
       <Card>
         <div className="mb-3 flex flex-wrap items-center gap-2">
-          <h2 className="font-display text-lg font-semibold">SSO (OIDC/SAML)</h2>
-          <Badge tone={data.sso.staging || !data.sso.enabled ? "warn" : "neutral"}>
-            {data.sso.enabled ? (data.sso.staging ? "staging" : "config") : "disabled"}
+          <h2 className="font-display text-lg font-semibold">SSO (OIDC)</h2>
+          <Badge tone={data.sso.staging || !data.sso.enabled ? "warn" : "ok"}>
+            {data.sso.enabled ? (data.sso.staging ? "staging" : "live") : "disabled"}
           </Badge>
         </div>
         <p className="mb-3 text-xs text-muted">
-          Сохранение конфигурации доступно; полноценный OIDC login flow — в roadmap (не live).
+          Staging: кнопка на /login входит без IdP (demo-пользователь). Live: Authorization Code +
+          auto-provision. Redirect URI для IdP:{" "}
+          <code className="text-accent2">{data.sso.redirect_uri}</code>
         </p>
         <form onSubmit={saveSso} className="grid gap-3 md:grid-cols-2">
-          <Input label="Provider" value={data.sso.provider} onChange={(e) => setData({ ...data, sso: { ...data.sso, provider: e.target.value } })} />
-          <Input label="Client ID" value={data.sso.client_id} onChange={(e) => setData({ ...data, sso: { ...data.sso, client_id: e.target.value } })} />
-          <Input label="Client secret" type="password" value={ssoSecret} onChange={(e) => setSsoSecret(e.target.value)} />
-          <Input label="Issuer URL" value={data.sso.issuer_url} onChange={(e) => setData({ ...data, sso: { ...data.sso, issuer_url: e.target.value } })} />
+          <Input
+            label="Кнопка на login"
+            value={data.sso.button_label}
+            onChange={(e) => setData({ ...data, sso: { ...data.sso, button_label: e.target.value } })}
+          />
+          <Input
+            label="Provider"
+            value={data.sso.provider}
+            onChange={(e) => setData({ ...data, sso: { ...data.sso, provider: e.target.value } })}
+          />
+          <Input
+            label="Client ID"
+            value={data.sso.client_id}
+            onChange={(e) => setData({ ...data, sso: { ...data.sso, client_id: e.target.value } })}
+          />
+          <Input
+            label="Client secret"
+            type="password"
+            value={ssoSecret}
+            onChange={(e) => setSsoSecret(e.target.value)}
+          />
+          <Input
+            label="Issuer URL"
+            value={data.sso.issuer_url}
+            onChange={(e) => setData({ ...data, sso: { ...data.sso, issuer_url: e.target.value } })}
+          />
+          <Input
+            label="Scopes"
+            value={data.sso.scopes}
+            onChange={(e) => setData({ ...data, sso: { ...data.sso, scopes: e.target.value } })}
+          />
+          <Input
+            label="Authorize URL (опц.)"
+            value={data.sso.authorize_url}
+            onChange={(e) => setData({ ...data, sso: { ...data.sso, authorize_url: e.target.value } })}
+          />
+          <Input
+            label="Token URL (опц.)"
+            value={data.sso.token_url}
+            onChange={(e) => setData({ ...data, sso: { ...data.sso, token_url: e.target.value } })}
+          />
+          <Input
+            label="Redirect URI"
+            value={data.sso.redirect_uri}
+            onChange={(e) => setData({ ...data, sso: { ...data.sso, redirect_uri: e.target.value } })}
+          />
+          <label className="md:col-span-2 block text-sm">
+            <span className="mb-1 block text-muted">Claims → roles (JSON)</span>
+            <textarea
+              className="vbx-field min-h-[88px] font-mono text-xs"
+              value={roleMapText}
+              onChange={(e) => setRoleMapText(e.target.value)}
+            />
+          </label>
           <label className="flex items-center gap-2 text-sm">
-            <input type="checkbox" checked={data.sso.enabled} onChange={(e) => setData({ ...data, sso: { ...data.sso, enabled: e.target.checked } })} />
+            <input
+              type="checkbox"
+              checked={data.sso.enabled}
+              onChange={(e) => setData({ ...data, sso: { ...data.sso, enabled: e.target.checked } })}
+            />
             Enabled
           </label>
           <label className="flex items-center gap-2 text-sm">
-            <input type="checkbox" checked={data.sso.staging} onChange={(e) => setData({ ...data, sso: { ...data.sso, staging: e.target.checked } })} />
-            Staging flag
+            <input
+              type="checkbox"
+              checked={data.sso.staging}
+              onChange={(e) => setData({ ...data, sso: { ...data.sso, staging: e.target.checked } })}
+            />
+            Staging (без IdP)
           </label>
-          <div className="md:col-span-2">
+          <div className="flex flex-wrap gap-2 md:col-span-2">
             <Button type="submit">Сохранить SSO</Button>
+            <Button type="button" variant="secondary" onClick={testSso}>
+              Проверить конфиг
+            </Button>
+            {data.sso.enabled ? (
+              <a
+                href="/api/auth/sso/login?next=/dashboard"
+                className="inline-flex items-center rounded-xl border border-border px-4 py-2 text-sm hover:border-accent/40"
+              >
+                Тест входа
+              </a>
+            ) : null}
+          </div>
+        </form>
+      </Card>
+
+      <Card data-testid="integrations-telegram">
+        <div className="mb-3 flex flex-wrap items-center gap-2">
+          <h2 className="font-display text-lg font-semibold">Telegram</h2>
+          <Badge tone={data.telegram?.enabled ? "ok" : "neutral"}>
+            {data.telegram?.enabled ? "enabled" : "off"}
+          </Badge>
+          <Badge tone="warn">stub</Badge>
+        </div>
+        <p className="mb-3 text-xs text-muted">
+          Bot token + chat_id. Тест пишет в лог API; без токена — no-op (live Bot API позже).
+        </p>
+        <form
+          onSubmit={async (e) => {
+            e.preventDefault();
+            if (!data) return;
+            try {
+              const res = await api<{ message: string }>("/settings/integrations/telegram", {
+                method: "PUT",
+                body: JSON.stringify({
+                  enabled: data.telegram.enabled,
+                  chat_id: data.telegram.chat_id,
+                  bot_token: tgToken || undefined,
+                }),
+              });
+              setMsg(res.message);
+              setTgToken("");
+              await load();
+            } catch (ex) {
+              setErr(ex instanceof Error ? ex.message : "Ошибка");
+            }
+          }}
+          className="grid gap-3 md:grid-cols-2"
+        >
+          <Input
+            label={`Bot token ${data.telegram?.bot_token_masked ? `(${data.telegram.bot_token_masked})` : ""}`}
+            type="password"
+            value={tgToken}
+            onChange={(e) => setTgToken(e.target.value)}
+          />
+          <Input
+            label="Chat ID"
+            value={data.telegram?.chat_id || ""}
+            onChange={(e) =>
+              setData({
+                ...data,
+                telegram: { ...data.telegram, chat_id: e.target.value },
+              })
+            }
+          />
+          <label className="flex items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              checked={!!data.telegram?.enabled}
+              onChange={(e) =>
+                setData({
+                  ...data,
+                  telegram: { ...data.telegram, enabled: e.target.checked },
+                })
+              }
+            />
+            Enabled
+          </label>
+          <div className="flex gap-2 md:col-span-2">
+            <Button type="submit">Сохранить Telegram</Button>
+            <Button
+              type="button"
+              variant="secondary"
+              onClick={async () => {
+                try {
+                  const res = await api<{ message: string }>("/settings/integrations/telegram/test", {
+                    method: "POST",
+                  });
+                  setMsg(res.message);
+                } catch (ex) {
+                  setErr(ex instanceof Error ? ex.message : "Ошибка");
+                }
+              }}
+            >
+              Test (log/no-op)
+            </Button>
           </div>
         </form>
       </Card>

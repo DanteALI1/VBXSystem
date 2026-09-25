@@ -24,7 +24,7 @@ type Props = {
   onAdd: (type: WidgetType) => void;
 };
 
-const ORDER: WidgetCategory[] = ["kpi", "feeds", "charts", "sync", "nav"];
+const ORDER: WidgetCategory[] = ["kpi", "feeds", "ops", "charts", "sync", "nav"];
 
 export function WidgetPicker({ open, onClose, data, range, usedTypes, onAdd }: Props) {
   const [cat, setCat] = useState<WidgetCategory | "all">("all");

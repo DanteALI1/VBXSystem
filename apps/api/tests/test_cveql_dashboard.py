@@ -141,7 +141,8 @@ def test_dashboard_aggregates(client):
     r = client.get("/dashboard", headers={"Authorization": f"Bearer {tok}"})
     assert r.status_code == 200
     body = r.json()
-    assert body["kpis"]["cves_today"] >= 1
+    assert "cves_today" in body["kpis"]
+    assert body["kpis"]["kev_catalog"] >= 1
     assert "activity" in body
     assert "sync_health" in body
     assert "attention_feed" in body

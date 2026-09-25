@@ -5,11 +5,13 @@ from sqlalchemy import (
     Column,
     DateTime,
     ForeignKey,
+    Index,
     Integer,
     String,
     Table,
     Text,
     UniqueConstraint,
+    text,
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
@@ -65,6 +67,8 @@ class User(Base):
         DateTime(timezone=True), default=utcnow, onupdate=utcnow
     )
     last_login_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    auth_provider: Mapped[str] = mapped_column(String(32), default="local")  # local | oidc
+    external_sub: Mapped[str | None] = mapped_column(String(255), nullable=True, unique=True, index=True)
 
     roles: Mapped[list["Role"]] = relationship(secondary=user_roles, back_populates="users")
     groups: Mapped[list["Group"]] = relationship(secondary=user_groups, back_populates="users")
@@ -168,10 +172,12 @@ class CveRecord(Base):
     description: Mapped[str] = mapped_column(Text, default="")
     status: Mapped[str] = mapped_column(String(64), default="")
     source: Mapped[str] = mapped_column(String(128), default="nvd")
-    published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    published_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True, index=True
+    )
     modified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     cvss_version: Mapped[str] = mapped_column(String(16), default="")
-    cvss_score: Mapped[float | None] = mapped_column(nullable=True)
+    cvss_score: Mapped[float | None] = mapped_column(nullable=True, index=True)
     cvss_severity: Mapped[str] = mapped_column(String(32), default="")
     cvss_vector: Mapped[str] = mapped_column(String(128), default="")
     is_remote: Mapped[bool] = mapped_column(Boolean, default=False)
@@ -236,7 +242,7 @@ class CisaKev(Base):
     vendor_project: Mapped[str] = mapped_column(String(255), default="")
     product: Mapped[str] = mapped_column(String(255), default="")
     vulnerability_name: Mapped[str] = mapped_column(String(512), default="")
-    date_added: Mapped[str] = mapped_column(String(32), default="")
+    date_added: Mapped[str] = mapped_column(String(32), default="", index=True)
     due_date: Mapped[str] = mapped_column(String(32), default="")
     required_action: Mapped[str] = mapped_column(Text, default="")
     known_ransomware: Mapped[str] = mapped_column(String(64), default="")
@@ -246,6 +252,11 @@ class CisaKev(Base):
 
 class EpssScore(Base):
     __tablename__ = "epss_scores"
+    __table_args__ = (
+        UniqueConstraint("cve_id", "scored_at", name="uq_epss_scores_cve_scored_at"),
+        Index("ix_epss_scores_cve_id_id", "cve_id", "id"),
+        Index("ix_epss_scores_scored_at", "scored_at"),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     cve_id: Mapped[str] = mapped_column(String(32), index=True)
@@ -434,10 +445,12 @@ class Ticket(Base):
     # new | in_progress | waiting | resolved | closed
     linked_cve_id: Mapped[str | None] = mapped_column(String(32), nullable=True, index=True)
     linked_bdu_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    external_ref: Mapped[str] = mapped_column(String(255), default="")
     assignee_user_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
     group_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("groups.id", ondelete="SET NULL"), nullable=True, index=True)
     created_by_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
-    due_date: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    due_date: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)  # due_at
+    sla_hours: Mapped[int | None] = mapped_column(Integer, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
 
@@ -474,3 +487,259 @@ class TicketAttachment(Base):
     size_bytes: Mapped[int] = mapped_column(Integer, default=0)
     uploaded_by_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class ModuleRegistry(Base):
+    """Known scanner modules (presence also mirrored in Redis)."""
+
+    __tablename__ = "module_registry"
+
+    id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    version: Mapped[str] = mapped_column(String(64), default="")
+    last_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    capabilities_json: Mapped[str] = mapped_column(Text, default="[]")
+
+
+class ScanCredential(Base):
+    """Encrypted scanner credential vault (form / basic / ZAP context)."""
+
+    __tablename__ = "scan_credentials"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    name: Mapped[str] = mapped_column(String(255), default="", index=True)
+    kind: Mapped[str] = mapped_column(String(64), default="http_form", index=True)
+    # http_form | http_basic | zap_context
+    username: Mapped[str] = mapped_column(String(255), default="")
+    password_enc: Mapped[str] = mapped_column(Text, default="")
+    extra_json: Mapped[str] = mapped_column(Text, default="{}")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow
+    )
+
+
+class Asset(Base):
+    __tablename__ = "assets"
+    __table_args__ = (
+        # Partial unique indexes: empty hostname/ip may repeat; non-empty must be unique.
+        # sqlite_where / postgresql_where keep create_all compatible with both dialects.
+        Index(
+            "uq_assets_ip_nonempty",
+            "ip",
+            unique=True,
+            sqlite_where=text("ip != ''"),
+            postgresql_where=text("ip != ''"),
+        ),
+        Index(
+            "uq_assets_hostname_nonempty",
+            "hostname",
+            unique=True,
+            sqlite_where=text("hostname != ''"),
+            postgresql_where=text("hostname != ''"),
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    kind: Mapped[str] = mapped_column(String(64), default="host", index=True)
+    hostname: Mapped[str] = mapped_column(String(255), default="", index=True)
+    ip: Mapped[str] = mapped_column(String(64), default="", index=True)
+    ports_json: Mapped[str] = mapped_column(Text, default="[]")
+    tags_json: Mapped[str] = mapped_column(Text, default="[]")
+    segment: Mapped[str] = mapped_column(String(128), default="", index=True)
+    owner_user_id: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    criticality: Mapped[str] = mapped_column(String(32), default="medium", index=True)
+    # low | medium | high | critical
+    org_unit_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
+    last_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+    owner: Mapped["User | None"] = relationship("User", foreign_keys=[owner_user_id])
+
+
+class ScanJob(Base):
+    __tablename__ = "scan_jobs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    module_id: Mapped[str] = mapped_column(String(128), index=True)
+    status: Mapped[str] = mapped_column(String(32), default="pending", index=True)
+    # pending | queued | running | success | failed | cancelled | aborted
+    kind: Mapped[str] = mapped_column(String(32), default="scan", index=True)
+    # scan | retest | scheduled
+    parent_job_id: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("scan_jobs.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    project_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
+    created_by: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    params_json: Mapped[str] = mapped_column(Text, default="{}")
+    progress_json: Mapped[str] = mapped_column(Text, default="{}")
+    error: Mapped[str] = mapped_column(Text, default="")
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    lease_owner: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    leased_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
+
+
+class Finding(Base):
+    __tablename__ = "findings"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    scan_job_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("scan_jobs.id", ondelete="CASCADE"), index=True
+    )
+    module_id: Mapped[str] = mapped_column(String(128), index=True)
+    asset_id: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("assets.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    title: Mapped[str] = mapped_column(String(512), default="")
+    severity: Mapped[str] = mapped_column(String(32), default="MEDIUM", index=True)
+    status: Mapped[str] = mapped_column(String(32), default="open", index=True)
+    evidence_json: Mapped[str] = mapped_column(Text, default="{}")
+    raw_ref: Mapped[str] = mapped_column(String(512), default="")
+    linked_cve_ids_json: Mapped[str] = mapped_column(Text, default="[]")
+    linked_bdu_ids_json: Mapped[str] = mapped_column(Text, default="[]")
+    ticket_id: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("tickets.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    fingerprint: Mapped[str] = mapped_column(String(64), default="", index=True)
+    last_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    closed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    assignee_user_id: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    occurrence_count: Mapped[int] = mapped_column(Integer, default=1)
+    risk_score: Mapped[int] = mapped_column(Integer, default=0, index=True)
+    priority: Mapped[str] = mapped_column(String(32), default="medium", index=True)
+    due_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
+    sla_hours: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    acceptance_reason: Mapped[str] = mapped_column(Text, default="")
+    accepted_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    tags_json: Mapped[str] = mapped_column(Text, default="[]")
+    external_ref: Mapped[str] = mapped_column(String(255), default="")
+    project_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
+
+
+class ScanSchedule(Base):
+    __tablename__ = "scan_schedules"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    name: Mapped[str] = mapped_column(String(255), default="")
+    module_id: Mapped[str] = mapped_column(String(128), default="", index=True)
+    params_json: Mapped[str] = mapped_column(Text, default="{}")
+    interval_sec: Mapped[int] = mapped_column(Integer, default=3600)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
+    last_run_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    next_run_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True, index=True
+    )
+    created_by: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class SavedFilter(Base):
+    __tablename__ = "saved_filters"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    scope: Mapped[str] = mapped_column(String(64), default="findings", index=True)
+    name: Mapped[str] = mapped_column(String(255), default="")
+    query_json: Mapped[str] = mapped_column(Text, default="{}")
+    user_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("users.id", ondelete="CASCADE"), index=True
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class AlertOutbox(Base):
+    __tablename__ = "alert_outbox"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    channel: Mapped[str] = mapped_column(String(64), default="webhook", index=True)
+    payload_json: Mapped[str] = mapped_column(Text, default="{}")
+    status: Mapped[str] = mapped_column(String(32), default="pending", index=True)
+    # pending | sent | failed
+    attempts: Mapped[int] = mapped_column(Integer, default=0)
+    last_error: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class FindingEvent(Base):
+    __tablename__ = "finding_events"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    finding_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("findings.id", ondelete="CASCADE"), index=True
+    )
+    actor_user_id: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    event_type: Mapped[str] = mapped_column(String(64), default="", index=True)
+    message: Mapped[str] = mapped_column(Text, default="")
+    meta_json: Mapped[str] = mapped_column(Text, default="{}")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
+
+
+class AlertPolicy(Base):
+    __tablename__ = "alert_policies"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    name: Mapped[str] = mapped_column(String(255), default="")
+    trigger: Mapped[str] = mapped_column(String(64), default="", index=True)
+    filters_json: Mapped[str] = mapped_column(Text, default="{}")
+    channels_json: Mapped[str] = mapped_column(Text, default="[]")
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class Project(Base):
+    __tablename__ = "projects"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    name: Mapped[str] = mapped_column(String(255), default="", index=True)
+    description: Mapped[str] = mapped_column(Text, default="")
+    org_unit_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
+    created_by: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class OrgUnit(Base):
+    __tablename__ = "org_units"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    name: Mapped[str] = mapped_column(String(255), default="", index=True)
+    parent_id: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("org_units.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+user_org_units = Table(
+    "user_org_units",
+    Base.metadata,
+    Column("user_id", ForeignKey("users.id", ondelete="CASCADE"), primary_key=True),
+    Column("org_unit_id", ForeignKey("org_units.id", ondelete="CASCADE"), primary_key=True),
+)
+
+
+class ReportTemplate(Base):
+    __tablename__ = "report_templates"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    name: Mapped[str] = mapped_column(String(255), default="")
+    sections_json: Mapped[str] = mapped_column(Text, default="[]")
+    updated_by: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow
+    )

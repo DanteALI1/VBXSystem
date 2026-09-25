@@ -76,9 +76,21 @@ export type WidgetType =
   | "list_epss_top"
   | "list_epss_deltas"
   | "quick_links"
-  | "watchlist_cta";
+  | "watchlist_cta"
+  | "ops_open_findings"
+  | "ops_scan_success"
+  | "ops_active_jobs"
+  | "ops_top_assets";
 
-export type WidgetCategory = "kpi" | "feeds" | "charts" | "sync" | "nav";
+export type WidgetCategory = "kpi" | "feeds" | "charts" | "sync" | "nav" | "ops";
+
+export type OpsDashboardData = {
+  open_by_severity: Record<string, number>;
+  scan_success_rate_7d: number | null;
+  scan_jobs_7d: { success?: number; failed?: number; total?: number };
+  active_jobs: number;
+  top_assets_by_findings: { asset_id: number; label: string; open_findings: number }[];
+};
 
 export type LayoutWidget = {
   i: string;
@@ -90,6 +102,15 @@ export type LayoutWidget = {
   minW?: number;
   minH?: number;
 };
+
+/** Client fallback when /dashboard/layouts fails — mirrors API classic preset. */
+export const FALLBACK_CLASSIC_WIDGETS: LayoutWidget[] = [
+  { i: "kpi_cve", type: "kpi_cve", x: 0, y: 0, w: 4, h: 2, minW: 3, minH: 2 },
+  { i: "kpi_kev", type: "kpi_kev", x: 4, y: 0, w: 4, h: 2, minW: 3, minH: 2 },
+  { i: "sync_health", type: "sync_health", x: 8, y: 0, w: 4, h: 3, minW: 3, minH: 2 },
+  { i: "activity_chart", type: "activity_chart", x: 0, y: 3, w: 12, h: 3, minW: 4, minH: 2 },
+  { i: "attention_feed", type: "attention_feed", x: 0, y: 6, w: 12, h: 6, minW: 4, minH: 3 },
+];
 
 export type LayoutBody = {
   version: number;
@@ -262,6 +283,38 @@ export const WIDGET_CATALOG: WidgetCatalogItem[] = [
     w: 4,
     h: 2,
   },
+  {
+    type: "ops_open_findings",
+    label: "Открытые находки",
+    description: "Open/triaged по severity (ops)",
+    category: "ops",
+    w: 6,
+    h: 3,
+  },
+  {
+    type: "ops_scan_success",
+    label: "Успех сканов 7д",
+    description: "Доля успешных заданий за неделю",
+    category: "ops",
+    w: 4,
+    h: 2,
+  },
+  {
+    type: "ops_active_jobs",
+    label: "Активные сканы",
+    description: "Pending / queued / running",
+    category: "ops",
+    w: 3,
+    h: 2,
+  },
+  {
+    type: "ops_top_assets",
+    label: "Топ узлов по находкам",
+    description: "Узлы с наибольшим числом open находок",
+    category: "ops",
+    w: 6,
+    h: 4,
+  },
 ];
 
 export const CATEGORY_LABEL: Record<WidgetCategory, string> = {
@@ -270,4 +323,5 @@ export const CATEGORY_LABEL: Record<WidgetCategory, string> = {
   charts: "Графики",
   sync: "Синхронизация",
   nav: "Навигация",
+  ops: "Ops / сканы",
 };

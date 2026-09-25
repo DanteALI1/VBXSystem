@@ -18,15 +18,18 @@ from app.schemas import (
     AutoUpdateUpdate,
     BduUploadOut,
     BduUrlUpdate,
+    CveStoreRawJsonUpdate,
     DatabaseSettingsOut,
     DatabaseStatsOut,
     MessageOut,
     NvdKeyUpdate,
+    PruneRawJsonIn,
     SyncRunOut,
     SyncStartOut,
 )
 from app.services.auth_helpers import get_setting, set_setting, write_audit
 from app.services.crypto_secrets import decrypt_secret, encrypt_secret, mask_secret
+from app.services.nvd_sync import prune_huge_raw_json, store_raw_json_enabled
 from app.services.sync_jobs import enqueue_sync
 
 router = APIRouter(prefix="/settings/database", tags=["database"])
@@ -131,6 +134,7 @@ def _build_settings(db: Session) -> DatabaseSettingsOut:
         nvd_auto_interval_hours=int(interval or "2"),
         nvd_mock_mode=mock,
         bdu_xml_url=stored_bdu_url or DEFAULT_BDU_URL,
+        cve_store_raw_json=store_raw_json_enabled(db),
         last_nvd_sync=_sync_out(last_nvd),
         last_bdu_sync=_sync_out(last_bdu),
         last_kev_sync=_sync_out(last_kev),
@@ -184,6 +188,53 @@ def set_auto_update(
         details=str(payload.enabled),
     )
     return MessageOut(message="Автообновление NVD обновлено")
+
+
+@router.put("/cve-store-raw-json", response_model=MessageOut)
+def set_cve_store_raw_json(
+    payload: CveStoreRawJsonUpdate,
+    db: Session = Depends(get_db),
+    user: User = Depends(_require_db_admin),
+) -> MessageOut:
+    set_setting(db, "cve_store_raw_json", "true" if payload.enabled else "false")
+    write_audit(
+        db,
+        action="database.cve_store_raw_json",
+        actor_user_id=user.id,
+        details=str(payload.enabled),
+    )
+    return MessageOut(
+        message=(
+            "Хранение raw_json включено"
+            if payload.enabled
+            else "Хранение raw_json отключено (новые sync пишут stub)"
+        )
+    )
+
+
+@router.post("/prune-raw-json", response_model=MessageOut)
+def prune_raw_json(
+    payload: PruneRawJsonIn,
+    db: Session = Depends(get_db),
+    user: User = Depends(_require_db_admin),
+) -> MessageOut:
+    if not payload.confirm:
+        raise HTTPException(
+            status_code=400,
+            detail="Передайте confirm=true — операция необратимо обрезает крупные raw_json",
+        )
+    result = prune_huge_raw_json(
+        db,
+        min_bytes=max(1000, int(payload.min_bytes or 10_000)),
+        limit=max(1, min(int(payload.limit or 50_000), 200_000)),
+    )
+    write_audit(
+        db,
+        action="database.prune_raw_json",
+        actor_user_id=user.id,
+        details=str(result),
+    )
+    return MessageOut(message=f"Обрезано raw_json: {result['updated']} записей")
 
 
 @router.post("/sync/nvd", response_model=SyncStartOut)

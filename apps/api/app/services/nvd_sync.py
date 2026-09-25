@@ -10,9 +10,41 @@ from app.core.config import get_settings
 from app.models import CveRecord, utcnow
 from app.services.auth_helpers import get_setting
 from app.services.crypto_secrets import decrypt_secret
+from sqlalchemy import func
 
 
 NVD_URL = "https://services.nvd.nist.gov/rest/json/cves/2.0"
+# When store-raw is on, cap payload size; when off, keep a tiny stub.
+RAW_JSON_MAX = 200_000
+RAW_JSON_STUB_MAX = 256
+
+
+def store_raw_json_enabled(db: Session) -> bool:
+    settings = get_settings()
+    return settings.cve_store_raw_json_effective(get_setting(db, "cve_store_raw_json", ""))
+
+
+def encode_raw_json(db: Session, item: dict) -> str:
+    if not store_raw_json_enabled(db):
+        stub = {"id": (item.get("cve") or {}).get("id") or "", "stored": False}
+        return json.dumps(stub, ensure_ascii=False)[:RAW_JSON_STUB_MAX]
+    return json.dumps(item, ensure_ascii=False)[:RAW_JSON_MAX]
+
+
+def prune_huge_raw_json(db: Session, *, min_bytes: int = 10_000, limit: int = 50_000) -> dict:
+    """Null/stub oversized cves.raw_json (one-shot admin prune)."""
+    q = (
+        db.query(CveRecord)
+        .filter(func.length(CveRecord.raw_json) >= min_bytes)
+        .order_by(CveRecord.id.asc())
+        .limit(max(1, min(limit, 200_000)))
+    )
+    updated = 0
+    for row in q:
+        row.raw_json = json.dumps({"id": row.id, "stored": False, "pruned": True}, ensure_ascii=False)
+        updated += 1
+    db.commit()
+    return {"updated": updated, "min_bytes": min_bytes, "limit": limit}
 
 
 def _parse_cvss(metrics: dict) -> tuple[str, float | None, str, str, bool]:
@@ -62,8 +94,19 @@ def upsert_cve_from_nvd_item(db: Session, item: dict) -> str:
     for conf in cve.get("configurations") or []:
         for node in conf.get("nodes") or []:
             for match in node.get("cpeMatch") or []:
-                if match.get("criteria"):
-                    products.append(match["criteria"])
+                criteria = match.get("criteria")
+                if not criteria:
+                    continue
+                entry: dict = {"cpe": criteria, "vulnerable": bool(match.get("vulnerable", True))}
+                for key in (
+                    "versionStartIncluding",
+                    "versionStartExcluding",
+                    "versionEndIncluding",
+                    "versionEndExcluding",
+                ):
+                    if match.get(key):
+                        entry[key] = match[key]
+                products.append(entry)
 
     published = cve.get("published")
     modified = cve.get("lastModified")
@@ -92,7 +135,7 @@ def upsert_cve_from_nvd_item(db: Session, item: dict) -> str:
         cwes=json.dumps(weaknesses),
         products=json.dumps(products[:50]),
         references_json=json.dumps(refs[:30]),
-        raw_json=json.dumps(item)[:200000],
+        raw_json=encode_raw_json(db, item),
         updated_at=utcnow(),
     )
     if existing:

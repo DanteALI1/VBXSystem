@@ -2,12 +2,13 @@
 
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Ticket } from "lucide-react";
 import { api } from "@/lib/api";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
+import { CvssScoringDetails } from "@/components/CvssScoringDetails";
 import { severityTone } from "@/lib/severity";
 
 type BduDetail = {
@@ -46,9 +47,63 @@ function Meta({ label, value }: { label: string; value?: string | null }) {
   return (
     <div className="rounded-xl border border-border/80 bg-surface2/50 px-3 py-2.5 text-sm">
       <div className="text-xs text-muted">{label}</div>
-      <div className="mt-1 whitespace-pre-wrap break-words">{value}</div>
+      <div className="mt-1 max-h-48 overflow-auto whitespace-pre-wrap break-words">{value}</div>
     </div>
   );
+}
+
+function scoreFromText(text: string, versionHint?: string): number | null {
+  if (!text) return null;
+  const norm = text.replace(/,/g, ".");
+  if (versionHint) {
+    const esc = versionHint.replace(".", "\\.");
+    const m = norm.match(
+      new RegExp(`CVSS\\s*${esc}[^\\d]{0,40}?(\\d{1,2}(?:\\.\\d+)?)`, "i"),
+    );
+    if (m) {
+      const n = Number(m[1]);
+      if (Number.isFinite(n) && n >= 0 && n <= 10) return n;
+    }
+  }
+  const m2 = norm.match(/составляет\s+(\d{1,2}(?:\.\d+)?)/i);
+  if (m2) {
+    const n = Number(m2[1]);
+    if (Number.isFinite(n) && n >= 0 && n <= 10) return n;
+  }
+  return null;
+}
+
+function levelToScore(level?: number | null): number | null {
+  if (level == null) return null;
+  // FSTEC severity_level often 1..4 (info→critical)
+  const map: Record<number, number> = { 1: 2.0, 2: 5.0, 3: 7.5, 4: 9.5 };
+  return map[level] ?? null;
+}
+
+function pickPrimaryCvss(data: BduDetail): {
+  vector: string;
+  version: string;
+  score: number | null;
+} | null {
+  const candidates: { vector: string; version: string; hint: string }[] = [];
+  if (data.cvss3_vector?.trim()) {
+    candidates.push({ vector: data.cvss3_vector.trim(), version: "3.1", hint: "3\\.1|3\\.0|3" });
+  }
+  if (data.cvss4_vector?.trim()) {
+    candidates.push({ vector: data.cvss4_vector.trim(), version: "4.0", hint: "4\\.0|4" });
+  }
+  if (data.cvss2_vector?.trim()) {
+    candidates.push({ vector: data.cvss2_vector.trim(), version: "2.0", hint: "2\\.0|2" });
+  }
+  const primary = candidates[0];
+  if (!primary) return null;
+
+  const fromSev =
+    scoreFromText(data.severity, primary.version) ??
+    scoreFromText(data.severity) ??
+    levelToScore(data.severity_level);
+
+  return { vector: primary.vector, version: primary.version, score: fromSev };
 }
 
 export default function BduDetailPage() {
@@ -68,6 +123,35 @@ export default function BduDetailPage() {
       .finally(() => setLoading(false));
   }, [bduId]);
 
+  const primary = useMemo(() => (data ? pickPrimaryCvss(data) : null), [data]);
+
+  const scoreBadges = useMemo(() => {
+    if (!data) return [];
+    const out: { label: string; score: number | null }[] = [];
+    if (data.cvss2_vector?.trim()) {
+      out.push({
+        label: "CVSS 2.0",
+        score: scoreFromText(data.severity, "2.0") ?? scoreFromText(data.severity, "2"),
+      });
+    }
+    if (data.cvss3_vector?.trim()) {
+      out.push({
+        label: "CVSS 3.1",
+        score:
+          scoreFromText(data.severity, "3.1") ??
+          scoreFromText(data.severity, "3.0") ??
+          scoreFromText(data.severity, "3"),
+      });
+    }
+    if (data.cvss4_vector?.trim()) {
+      out.push({
+        label: "CVSS 4.0",
+        score: scoreFromText(data.severity, "4.0") ?? scoreFromText(data.severity, "4"),
+      });
+    }
+    return out;
+  }, [data]);
+
   if (loading) return <div className="text-sm text-muted">Загрузка карточки БДУ…</div>;
   if (err) {
     return (
@@ -78,16 +162,10 @@ export default function BduDetailPage() {
   }
   if (!data) return null;
 
-  const vectors = [
-    { label: "CVSS 2.0", v: data.cvss2_vector },
-    { label: "CVSS 3.x", v: data.cvss3_vector },
-    { label: "CVSS 4.0", v: data.cvss4_vector },
-  ].filter((x) => x.v);
-
   return (
-    <div className="mx-auto max-w-4xl space-y-5" data-testid="bdu-detail">
+    <div className="mx-auto max-w-6xl space-y-5" data-testid="bdu-detail">
       <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
+        <div className="min-w-0 flex-1">
           <p className="text-xs uppercase tracking-wide text-muted">БДУ ФСТЭК</p>
           <h1 className="font-display text-3xl font-semibold tracking-tight">{data.id}</h1>
           <p className="mt-1 text-muted">{data.name}</p>
@@ -97,6 +175,13 @@ export default function BduDetailPage() {
                 {data.severity}
                 {data.severity_level != null ? ` · L${data.severity_level}` : ""}
               </Badge>
+            )}
+            {scoreBadges.map((b) =>
+              b.score != null ? (
+                <Badge key={b.label} tone={severityTone(data.severity)}>
+                  {b.label}: {b.score}
+                </Badge>
+              ) : null,
             )}
             {data.status && <Badge>{data.status}</Badge>}
             {data.vuln_class && <Badge tone="neutral">{data.vuln_class}</Badge>}
@@ -117,94 +202,105 @@ export default function BduDetailPage() {
         </Button>
       </div>
 
-      <Card>
-        <h2 className="font-display text-lg font-semibold">Описание</h2>
-        <p className="mt-2 whitespace-pre-wrap text-sm leading-relaxed text-muted">
-          {data.description || "—"}
-        </p>
-      </Card>
+      <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_minmax(280px,360px)]">
+        <div className="min-w-0 space-y-5">
+          <Card>
+            <h2 className="font-display text-lg font-semibold">Описание</h2>
+            <p className="mt-2 whitespace-pre-wrap text-sm leading-relaxed text-muted">
+              {data.description || "—"}
+            </p>
+          </Card>
 
-      <div className="grid gap-3 sm:grid-cols-2">
-        <Meta label="Вендоры" value={data.vendors} />
-        <Meta label="ПО" value={data.software_names} />
-        <Meta label="Версии ПО" value={data.software_versions} />
-        <Meta label="Тип ПО" value={data.software_type} />
-        <Meta label="ОС / платформа" value={data.os_platform} />
-        <Meta label="Дата выявления" value={data.identify_date} />
-        <Meta label="Дата публикации" value={data.published_date} />
-        <Meta label="Дата обновления" value={data.updated_date} />
-        <Meta label="CWE" value={data.cwes} />
-        <Meta label="Описание CWE" value={data.cwe_description} />
-        <Meta label="Статус эксплуатации" value={data.exploit_status} />
-        <Meta label="Способ эксплуатации" value={data.exploit_method} />
-        <Meta label="Способ устранения" value={data.fix_method} />
-      </div>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <Meta label="Вендоры" value={data.vendors} />
+            <Meta label="ПО" value={data.software_names} />
+            <Meta label="Версии ПО" value={data.software_versions} />
+            <Meta label="Тип ПО" value={data.software_type} />
+            <Meta label="ОС / платформа" value={data.os_platform} />
+            <Meta label="Дата выявления" value={data.identify_date} />
+            <Meta label="Дата публикации" value={data.published_date} />
+            <Meta label="Дата обновления" value={data.updated_date} />
+            <Meta label="CWE" value={data.cwes} />
+            <Meta label="Описание CWE" value={data.cwe_description} />
+            <Meta label="Статус эксплуатации" value={data.exploit_status} />
+            <Meta label="Способ эксплуатации" value={data.exploit_method} />
+            <Meta label="Способ устранения" value={data.fix_method} />
+          </div>
 
-      {vectors.length > 0 && (
-        <Card>
-          <h2 className="font-display text-lg font-semibold">CVSS (векторы ФСТЭК)</h2>
-          <dl className="mt-3 space-y-2 text-sm">
-            {vectors.map((x) => (
-              <div key={x.label}>
-                <dt className="text-xs text-muted">{x.label}</dt>
-                <dd className="mt-0.5 break-all font-mono text-xs">{x.v}</dd>
+          {(data.solution || data.fix_info) && (
+            <Card>
+              <h2 className="font-display text-lg font-semibold">Решение / устранение</h2>
+              {data.solution && (
+                <p className="mt-2 whitespace-pre-wrap text-sm text-muted">{data.solution}</p>
+              )}
+              {data.fix_info && (
+                <p className="mt-2 whitespace-pre-wrap text-sm text-muted">{data.fix_info}</p>
+              )}
+            </Card>
+          )}
+
+          {data.references && data.references.length > 0 && (
+            <Card>
+              <h2 className="font-display text-lg font-semibold">Ссылки</h2>
+              <ul className="mt-2 list-inside list-disc space-y-1 text-sm">
+                {data.references.map((ref) => (
+                  <li key={ref} className="break-all">
+                    {ref.startsWith("http") ? (
+                      <a href={ref} target="_blank" rel="noreferrer" className="text-accent2 hover:underline">
+                        {ref}
+                      </a>
+                    ) : (
+                      ref
+                    )}
+                  </li>
+                ))}
+              </ul>
+            </Card>
+          )}
+
+          {data.linked_cve_ids?.length > 0 && (
+            <Card>
+              <h2 className="font-display text-lg font-semibold">Связанные CVE</h2>
+              <ul className="mt-2 flex flex-wrap gap-2">
+                {data.linked_cve_ids.map((cve) => (
+                  <li key={cve}>
+                    <Link href={`/vuln/${encodeURIComponent(cve)}`} className="text-accent2 hover:underline">
+                      {cve}
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            </Card>
+          )}
+
+          <p className="text-sm">
+            <Link href="/search" className="text-accent2 hover:underline">
+              ← К поиску
+            </Link>
+          </p>
+        </div>
+
+        <aside className="xl:sticky xl:top-20 xl:self-start">
+          <Card className="border-border/80 shadow-soft" data-testid="bdu-scoring">
+            {primary ? (
+              <CvssScoringDetails
+                score={primary.score}
+                severity={data.severity}
+                version={primary.version}
+                vector={primary.vector}
+              />
+            ) : (
+              <div className="space-y-2">
+                <div className="text-xs font-semibold uppercase tracking-wider text-muted">Scoring</div>
+                <h2 className="font-display text-lg font-semibold">Vulnerability Scoring Details</h2>
+                <p className="text-sm text-muted">
+                  Вектор CVSS в записи БДУ отсутствует — диаграмма недоступна.
+                </p>
               </div>
-            ))}
-          </dl>
-        </Card>
-      )}
-
-      {(data.solution || data.fix_info) && (
-        <Card>
-          <h2 className="font-display text-lg font-semibold">Решение / устранение</h2>
-          {data.solution && (
-            <p className="mt-2 whitespace-pre-wrap text-sm text-muted">{data.solution}</p>
-          )}
-          {data.fix_info && (
-            <p className="mt-2 whitespace-pre-wrap text-sm text-muted">{data.fix_info}</p>
-          )}
-        </Card>
-      )}
-
-      {data.references && data.references.length > 0 && (
-        <Card>
-          <h2 className="font-display text-lg font-semibold">Ссылки</h2>
-          <ul className="mt-2 list-inside list-disc space-y-1 text-sm">
-            {data.references.map((ref) => (
-              <li key={ref} className="break-all">
-                {ref.startsWith("http") ? (
-                  <a href={ref} target="_blank" rel="noreferrer" className="text-accent2 hover:underline">
-                    {ref}
-                  </a>
-                ) : (
-                  ref
-                )}
-              </li>
-            ))}
-          </ul>
-        </Card>
-      )}
-
-      {data.linked_cve_ids?.length > 0 && (
-        <Card>
-          <h2 className="font-display text-lg font-semibold">Связанные CVE</h2>
-          <ul className="mt-2 flex flex-wrap gap-2">
-            {data.linked_cve_ids.map((cve) => (
-              <li key={cve}>
-                <Link href={`/vuln/${encodeURIComponent(cve)}`} className="text-accent2 hover:underline">
-                  {cve}
-                </Link>
-              </li>
-            ))}
-          </ul>
-        </Card>
-      )}
-
-      <p className="text-sm">
-        <Link href="/search" className="text-accent2 hover:underline">
-          ← К поиску
-        </Link>
-      </p>
+            )}
+          </Card>
+        </aside>
+      </div>
     </div>
   );
 }

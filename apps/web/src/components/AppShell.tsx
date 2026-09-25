@@ -6,7 +6,6 @@ import { useEffect, useState } from "react";
 import {
   LayoutDashboard,
   Search,
-  Terminal,
   Activity,
   Database,
   Ticket,
@@ -15,21 +14,62 @@ import {
   LogOut,
   PanelLeftClose,
   PanelLeftOpen,
+  Radar,
+  Crosshair,
+  Server,
+  FolderKanban,
+  Network,
+  FileText,
 } from "lucide-react";
-import { logoutRequest } from "@/lib/api";
+import { logoutRequest, api } from "@/lib/api";
 import { useAuth } from "@/lib/useAuth";
 
-const NAV = [
-  { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
-  { href: "/search", label: "Search", icon: Search },
-  { href: "/cveql", label: "CVEQL", icon: Terminal },
-  { href: "/epss", label: "EPSS", icon: Activity },
-  { href: "/xdb", label: "Exploits", icon: Database },
-  { href: "/tickets", label: "Заявки", icon: Ticket },
-  { href: "/settings", label: "Настройки", icon: Settings },
+type NavItem = { href: string; label: string; icon: typeof LayoutDashboard };
+type NavSection = { title?: string; items: NavItem[] };
+
+const NAV: NavSection[] = [
+  {
+    items: [
+      { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
+      { href: "/search", label: "Search", icon: Search },
+      { href: "/epss", label: "EPSS", icon: Activity },
+      { href: "/xdb", label: "Exploits", icon: Database },
+      { href: "/tickets", label: "Заявки", icon: Ticket },
+    ],
+  },
+  {
+    title: "Сканирование",
+    items: [
+      { href: "/scans", label: "Сканы", icon: Radar },
+      { href: "/assets", label: "Узлы", icon: Server },
+      { href: "/findings", label: "Находки", icon: Crosshair },
+      { href: "/projects", label: "Проекты", icon: FolderKanban },
+      { href: "/graph", label: "Граф", icon: Network },
+    ],
+  },
+  {
+    items: [
+      { href: "/reports", label: "Отчёты", icon: FileText },
+      { href: "/settings", label: "Настройки", icon: Settings },
+    ],
+  },
 ];
 
 const STORAGE_KEY = "vbx.sidebar.collapsed";
+
+function linkActive(pathname: string, href: string): boolean {
+  if (pathname === href || pathname.startsWith(href + "/")) return true;
+  if (
+    href === "/search" &&
+    (pathname.startsWith("/vuln/") ||
+      pathname.startsWith("/bdu/") ||
+      pathname.startsWith("/local/"))
+  ) {
+    return true;
+  }
+  if (href === "/settings" && pathname.startsWith("/settings")) return true;
+  return false;
+}
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
@@ -47,6 +87,18 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     }
     setReady(true);
   }, []);
+
+  useEffect(() => {
+    if (loading || !user) return;
+    if (pathname.startsWith("/setup")) return;
+    api<{ needs_setup: boolean; completed: boolean }>("/setup/status")
+      .then((s) => {
+        if (s.needs_setup && !s.completed) {
+          router.replace("/setup");
+        }
+      })
+      .catch(() => undefined);
+  }, [loading, user, pathname, router]);
 
   function toggleSidebar() {
     setCollapsed((prev) => {
@@ -104,40 +156,43 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         </div>
 
         <nav
-          className={`flex-1 space-y-1 pb-4 ${collapsed ? "w-full px-2" : "px-3"}`}
+          className={`flex-1 space-y-4 pb-4 ${collapsed ? "w-full px-2" : "px-3"}`}
           aria-label="Основное меню"
         >
-          {NAV.map((item) => {
-            const active =
-              pathname === item.href ||
-              pathname.startsWith(item.href + "/") ||
-              (item.href === "/search" &&
-                (pathname.startsWith("/vuln/") ||
-                  pathname.startsWith("/bdu/") ||
-                  pathname.startsWith("/local/")));
-            const Icon = item.icon;
-            return (
-              <Link
-                key={item.href}
-                href={item.href}
-                title={collapsed ? item.label : undefined}
-                aria-label={item.label}
-                className={`group flex items-center rounded-xl text-sm font-medium transition ${
-                  collapsed ? "justify-center px-0 py-2.5" : "gap-3 px-3 py-2.5"
-                } ${
-                  active
-                    ? "bg-accent/12 text-accent2"
-                    : "text-muted hover:bg-white/[0.04] hover:text-text"
-                }`}
-              >
-                <Icon
-                  size={16}
-                  className={`shrink-0 ${active ? "text-accent2" : "text-muted group-hover:text-text"}`}
-                />
-                {!collapsed ? <span className="truncate">{item.label}</span> : null}
-              </Link>
-            );
-          })}
+          {NAV.map((section, si) => (
+            <div key={section.title || `nav-${si}`} className="space-y-1">
+              {section.title && !collapsed ? (
+                <div className="px-3 pb-1 pt-1 text-[10px] font-semibold uppercase tracking-wider text-muted/80">
+                  {section.title}
+                </div>
+              ) : null}
+              {section.items.map((item) => {
+                const active = linkActive(pathname, item.href);
+                const Icon = item.icon;
+                return (
+                  <Link
+                    key={item.href}
+                    href={item.href}
+                    title={collapsed ? item.label : undefined}
+                    aria-label={item.label}
+                    className={`group flex items-center rounded-xl text-sm font-medium transition ${
+                      collapsed ? "justify-center px-0 py-2.5" : "gap-3 px-3 py-2.5"
+                    } ${
+                      active
+                        ? "bg-accent/12 text-accent2"
+                        : "text-muted hover:bg-white/[0.04] hover:text-text"
+                    }`}
+                  >
+                    <Icon
+                      size={16}
+                      className={`shrink-0 ${active ? "text-accent2" : "text-muted group-hover:text-text"}`}
+                    />
+                    {!collapsed ? <span className="truncate">{item.label}</span> : null}
+                  </Link>
+                );
+              })}
+            </div>
+          ))}
         </nav>
 
         <div className={`mt-auto pb-5 ${collapsed ? "px-2" : "px-3"}`}>

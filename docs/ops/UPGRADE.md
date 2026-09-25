@@ -9,22 +9,34 @@
 ## Путь обновления (Docker Compose)
 
 ```bash
-cd /opt/vbx/app
-docker compose --env-file .env down
-
-# подтянуть новый код (git pull / распаковать релиз в APP_DIR)
+cd /opt/vbx/app   # или каталог клона репо
 # сохранить .env — не перезаписывать секреты
+git pull
+# сверьте новые ключи: diff .env.example .env
 
-docker compose --env-file .env build --pull
-docker compose --env-file .env up -d
+docker compose --env-file .env up -d --build
+# обязательно пересобрать api + worker + ops-worker + web
 ```
 
-Миграции Alembic выполняются entrypoint API при старте. Проверка:
+Миграции Alembic выполняются entrypoint API при старте (Wave 2: `0022`–`0024`). Проверка:
 
 ```bash
 docker compose --env-file .env exec api alembic current
+# ожидается 0024_rbac_reports (или новее)
 curl -fsS http://127.0.0.1:8000/ready
+docker compose --env-file .env ps
 ```
+
+Если используете сканеры — после pull пересоберите и их:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.scanners.yml \
+  --profile nmap --profile discovery up -d --build
+```
+
+После миграции risk: `ops-worker` сам досчитает `risk_score` для старых findings (backfill), либо:
+
+`POST /findings/recompute-risk?limit=500`
 
 ## Через install.sh
 
@@ -51,4 +63,4 @@ sudo bash /opt/vbx/app/deploy/redos/install.sh /opt/vbx/config/vbx.conf.used
 | Breaking env | см. changelog релиза; дополните `.env` |
 | Смена major Postgres | отдельный dump/restore цикл |
 
-Версия API отображается в OpenAPI (`/docs`) и заголовке FastAPI (`0.8.x`).
+Версия API отображается в OpenAPI (`/docs`) и заголовке FastAPI (`0.10.x`).

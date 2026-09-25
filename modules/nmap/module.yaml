@@ -1,0 +1,31 @@
+id: nmap
+name: Nmap Port Scanner
+version: "0.2.0"
+kind: scanner
+runtime: python
+entrypoint: worker.py
+offline_capable: false
+capabilities:
+  - port_scan
+  - os_detect
+  - nse
+  - finding.v1
+defaults:
+  profile: default
+  ports: "22,80,443,8000,3000"
+  timing: 3
+profiles:
+  - quick
+  - default
+  - full
+  - udp
+  - vuln-scripts
+fallback:
+  when: nmap binary missing or fails to execute
+  behavior: python_tcp_probe for quick|default|full (raw.degraded=true)
+  refuses: udp, vuln-scripts
+allowlist_env: VBX_SCAN_ALLOWLIST
+local_allowlist:
+  - 127.0.0.1
+  - scan-target
+  - host.docker.internal

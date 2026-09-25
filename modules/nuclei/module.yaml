@@ -1,0 +1,20 @@
+# ProjectDiscovery nuclei — template-based vulnerability scanner (allowlisted targets only).
+
+id: nuclei
+name: Nuclei Scanner
+version: "0.1.0"
+kind: scanner
+runtime: python
+entrypoint: worker.py
+offline_capable: false
+capabilities:
+  - vuln.template
+  - finding.v1
+params:
+  - target
+  - templates
+  - severity
+  - rate_limit
+  - concurrency
+  - tags
+  - exclude_tags

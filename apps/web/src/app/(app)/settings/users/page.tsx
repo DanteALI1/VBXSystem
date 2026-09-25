@@ -1,6 +1,7 @@
 "use client";
 
 import { FormEvent, useEffect, useState } from "react";
+import { Trash2 } from "lucide-react";
 import { api, User } from "@/lib/api";
 import { useAuth } from "@/lib/useAuth";
 import { Badge } from "@/components/ui/Badge";
@@ -10,6 +11,9 @@ import { Input } from "@/components/ui/Input";
 
 type Group = { id: number; name: string; source: string; description: string };
 type Role = { code: string; name: string };
+
+const selectClass =
+  "vbx-field";
 
 export default function UsersPage() {
   const { user, loading } = useAuth({ requireSuperAdmin: true });
@@ -23,9 +27,11 @@ export default function UsersPage() {
     email: "",
     password: "",
     full_name: "",
-    roles: "viewer",
+    role: "viewer",
+    group_id: "",
   });
   const [groupName, setGroupName] = useState("");
+  const [busyGroupId, setBusyGroupId] = useState<number | null>(null);
   const [adSyncMsg, setAdSyncMsg] = useState<string | null>(null);
 
   async function reload() {
@@ -37,11 +43,15 @@ export default function UsersPage() {
     setUsers(u);
     setGroups(g);
     setRoles(r);
+    if (r.length && !r.some((x) => x.code === createForm.role)) {
+      setCreateForm((f) => ({ ...f, role: r[0]?.code || "viewer" }));
+    }
   }
 
   useEffect(() => {
     if (!user?.is_super_admin) return;
     reload().catch((e) => setError(e.message));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user]);
 
   if (loading) return <div className="text-sm text-muted">Загрузка…</div>;
@@ -71,16 +81,28 @@ export default function UsersPage() {
     e.preventDefault();
     setError(null);
     try {
+      const group_ids = createForm.group_id ? [Number(createForm.group_id)] : [];
       await api("/users", {
         method: "POST",
         body: JSON.stringify({
-          ...createForm,
-          roles: createForm.roles.split(",").map((s) => s.trim()).filter(Boolean),
+          username: createForm.username,
+          email: createForm.email,
+          password: createForm.password,
+          full_name: createForm.full_name,
+          roles: [createForm.role || "viewer"],
+          group_ids,
           status: "active",
         }),
       });
       setMsg("Пользователь создан");
-      setCreateForm({ username: "", email: "", password: "", full_name: "", roles: "viewer" });
+      setCreateForm({
+        username: "",
+        email: "",
+        password: "",
+        full_name: "",
+        role: roles[0]?.code || "viewer",
+        group_id: "",
+      });
       await reload();
     } catch (ex) {
       setError(ex instanceof Error ? ex.message : "Ошибка");
@@ -89,12 +111,37 @@ export default function UsersPage() {
 
   async function createGroup(e: FormEvent) {
     e.preventDefault();
-    await api("/groups", {
-      method: "POST",
-      body: JSON.stringify({ name: groupName, source: "local", description: "" }),
-    });
-    setGroupName("");
-    await reload();
+    setError(null);
+    if (!groupName.trim()) return;
+    try {
+      await api("/groups", {
+        method: "POST",
+        body: JSON.stringify({ name: groupName.trim(), source: "local", description: "" }),
+      });
+      setGroupName("");
+      setMsg("Группа создана");
+      await reload();
+    } catch (ex) {
+      setError(ex instanceof Error ? ex.message : "Ошибка");
+    }
+  }
+
+  async function deleteGroup(id: number, name: string) {
+    if (!window.confirm(`Удалить группу «${name}»?`)) return;
+    setError(null);
+    setBusyGroupId(id);
+    try {
+      await api(`/groups/${id}`, { method: "DELETE" });
+      setMsg(`Группа «${name}» удалена`);
+      if (createForm.group_id === String(id)) {
+        setCreateForm((f) => ({ ...f, group_id: "" }));
+      }
+      await reload();
+    } catch (ex) {
+      setError(ex instanceof Error ? ex.message : "Ошибка удаления");
+    } finally {
+      setBusyGroupId(null);
+    }
   }
 
   async function syncAd() {
@@ -165,15 +212,61 @@ export default function UsersPage() {
         <Card>
           <h2 className="mb-4 font-display text-lg font-semibold">Создать пользователя</h2>
           <form className="space-y-3" onSubmit={createUser}>
-            <Input label="Логин" value={createForm.username} onChange={(e) => setCreateForm({ ...createForm, username: e.target.value })} required />
-            <Input label="Email" type="email" value={createForm.email} onChange={(e) => setCreateForm({ ...createForm, email: e.target.value })} required />
-            <Input label="Пароль" type="password" value={createForm.password} onChange={(e) => setCreateForm({ ...createForm, password: e.target.value })} required />
-            <Input label="ФИО" value={createForm.full_name} onChange={(e) => setCreateForm({ ...createForm, full_name: e.target.value })} />
             <Input
-              label={`Роли (${roles.map((r) => r.code).join(", ")})`}
-              value={createForm.roles}
-              onChange={(e) => setCreateForm({ ...createForm, roles: e.target.value })}
+              label="Логин"
+              value={createForm.username}
+              onChange={(e) => setCreateForm({ ...createForm, username: e.target.value })}
+              required
             />
+            <Input
+              label="Email"
+              type="email"
+              value={createForm.email}
+              onChange={(e) => setCreateForm({ ...createForm, email: e.target.value })}
+              required
+            />
+            <Input
+              label="Пароль"
+              type="password"
+              value={createForm.password}
+              onChange={(e) => setCreateForm({ ...createForm, password: e.target.value })}
+              required
+            />
+            <Input
+              label="ФИО"
+              value={createForm.full_name}
+              onChange={(e) => setCreateForm({ ...createForm, full_name: e.target.value })}
+            />
+            <label className="block text-sm">
+              <span className="mb-1 block text-muted">Роль</span>
+              <select
+                className={selectClass}
+                value={createForm.role}
+                onChange={(e) => setCreateForm({ ...createForm, role: e.target.value })}
+                required
+              >
+                {roles.map((r) => (
+                  <option key={r.code} value={r.code}>
+                    {r.name || r.code} ({r.code})
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="block text-sm">
+              <span className="mb-1 block text-muted">Группа</span>
+              <select
+                className={selectClass}
+                value={createForm.group_id}
+                onChange={(e) => setCreateForm({ ...createForm, group_id: e.target.value })}
+              >
+                <option value="">Без группы</option>
+                {groups.map((g) => (
+                  <option key={g.id} value={g.id}>
+                    {g.name} ({g.source})
+                  </option>
+                ))}
+              </select>
+            </label>
             <Button type="submit">Создать</Button>
           </form>
         </Card>
@@ -181,25 +274,47 @@ export default function UsersPage() {
         <Card>
           <h2 className="mb-4 font-display text-lg font-semibold">Группы</h2>
           <ul className="mb-4 space-y-2 text-sm">
-            {groups.map((g) => (
-              <li key={g.id} className="flex items-center justify-between rounded-xl border border-border px-3 py-2">
-                <span>
-                  {g.name}{" "}
-                  <Badge tone={g.source === "ad" ? "accent" : "neutral"}>{g.source}</Badge>
-                </span>
-              </li>
-            ))}
+            {groups.length === 0 ? (
+              <li className="text-muted">Пока нет групп</li>
+            ) : (
+              groups.map((g) => (
+                <li
+                  key={g.id}
+                  className="flex items-center justify-between gap-2 rounded-xl border border-border px-3 py-2"
+                >
+                  <span className="min-w-0 truncate">
+                    {g.name}{" "}
+                    <Badge tone={g.source === "ad" ? "accent" : "neutral"}>{g.source}</Badge>
+                  </span>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    className="shrink-0 text-muted hover:text-danger"
+                    disabled={busyGroupId === g.id}
+                    onClick={() => deleteGroup(g.id, g.name)}
+                    aria-label={`Удалить группу ${g.name}`}
+                    title="Удалить"
+                  >
+                    <Trash2 size={14} />
+                  </Button>
+                </li>
+              ))
+            )}
           </ul>
           <form className="mb-4 flex gap-2" onSubmit={createGroup}>
             <div className="flex-1">
-              <Input label="Новая локальная группа" value={groupName} onChange={(e) => setGroupName(e.target.value)} />
+              <Input
+                label="Новая локальная группа"
+                value={groupName}
+                onChange={(e) => setGroupName(e.target.value)}
+              />
             </div>
             <div className="flex items-end">
               <Button type="submit">Добавить</Button>
             </div>
           </form>
           <Button type="button" variant="secondary" onClick={syncAd}>
-            Синхронизация AD (черновик W6)
+            Синхронизация AD
           </Button>
           {adSyncMsg ? <p className="mt-2 text-sm text-muted">{adSyncMsg}</p> : null}
         </Card>

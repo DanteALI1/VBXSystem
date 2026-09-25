@@ -11,7 +11,7 @@
 | 5 | Rate limit CVEQL / uploads | OK | CVEQL per-user; BDU/XDB upload limits |
 | 6 | Upload size limits | OK | BDU 64 MiB, XDB 32 MiB, global body `VBX_MAX_UPLOAD_BYTES` |
 | 7 | Path traversal на BDU filename | OK | basename + reject `..` / separators |
-| 8 | CSRF (cookie session) | N/A | Нет cookie-session; Bearer header |
+| 8 | CSRF (cookie session) | OK | SameSite=Lax + double-submit (timing-safe) on Next BFF + API `CookieCsrfMiddleware` when cookie auth; Origin/Referer allowlist |
 | 9 | Secrets в `.env` mode 600 | OK | install.sh + VBX_INSTALL_INFO.txt |
 | 10 | Postgres/Redis пароли | OK | генерируются install.sh |
 | 11 | 2FA / force-2fa | OK | Settings → Security |
@@ -20,6 +20,9 @@
 | 14 | Default admin password | OK | `install.sh` **всегда генерирует** пароль Admin; показать в отчёте |
 | 15 | TLS termination | WARN | HTTP по умолчанию; HTTPS через reverse-proxy / VBX_SCHEME |
 | 16 | API :8000 наружу | WARN | На prod закрыть firewall до API, оставить только web |
+| 17 | Module token / Shodan key over wire | OK | Per-module tokens; config GET returns `shodan_api_key_set` only; POST shodan key scoped |
+| 18 | Rate limit internal modules | OK | 120/min per token+IP; fail-open; pytest high limit |
+| 19 | CVE raw_json default | OK | `VBX_CVE_STORE_RAW_JSON` / seed default **false** |
 
 ## Рекомендации оператору
 

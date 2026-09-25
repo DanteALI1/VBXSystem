@@ -3,12 +3,13 @@
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
-import { AlertTriangle, ExternalLink, Ticket, ArrowLeft, Share2 } from "lucide-react";
+import { AlertTriangle, ExternalLink, Ticket, ArrowLeft, Share2, Bookmark, BookmarkCheck } from "lucide-react";
 import { api } from "@/lib/api";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { CvssScoringDetails } from "@/components/CvssScoringDetails";
+import { EpssSparkline } from "@/components/EpssSparkline";
 import { formatDate, severityTone } from "@/lib/severity";
 
 type CveDetail = {
@@ -41,6 +42,7 @@ type CveDetail = {
     notes?: string;
   } | null;
   epss?: { score?: number; percentile?: number; scored_at?: string } | null;
+  epss_history?: Array<{ scored_at?: string; score?: number; percentile?: number }>;
   bdu: Array<{
     id: string;
     name?: string;
@@ -61,6 +63,15 @@ type CveDetail = {
     author: string;
     source?: string;
   }>;
+  affected?: {
+    app?: string;
+    os?: string;
+    version?: string;
+    apps?: string[];
+    oses?: string[];
+    versions?: string[];
+    sources?: string[];
+  };
 };
 
 function refUrl(ref: unknown): string | null {
@@ -127,6 +138,9 @@ export default function VulnDetailPage() {
   const [err, setErr] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [descTab, setDescTab] = useState<"nvd" | "bdu">("nvd");
+  const [watching, setWatching] = useState(false);
+  const [watchId, setWatchId] = useState<number | null>(null);
+  const [watchBusy, setWatchBusy] = useState(false);
 
   useEffect(() => {
     if (!cveId) return;
@@ -135,7 +149,42 @@ export default function VulnDetailPage() {
       .then(setData)
       .catch((e) => setErr(e instanceof Error ? e.message : "Ошибка"))
       .finally(() => setLoading(false));
+    api<{ watching: boolean; entry_id?: number | null }>(
+      `/watchlist/cve/${encodeURIComponent(cveId)}`,
+    )
+      .then((w) => {
+        setWatching(!!w.watching);
+        setWatchId(w.entry_id ?? null);
+      })
+      .catch(() => {
+        setWatching(false);
+        setWatchId(null);
+      });
   }, [cveId]);
+
+  async function toggleWatch() {
+    if (!data || watchBusy) return;
+    setWatchBusy(true);
+    setErr(null);
+    try {
+      if (watching && watchId != null) {
+        await api(`/watchlist/${watchId}`, { method: "DELETE" });
+        setWatching(false);
+        setWatchId(null);
+      } else {
+        const created = await api<{ id: number }>("/watchlist", {
+          method: "POST",
+          body: JSON.stringify({ kind: "cve", value: data.id }),
+        });
+        setWatching(true);
+        setWatchId(created.id);
+      }
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Ошибка watchlist");
+    } finally {
+      setWatchBusy(false);
+    }
+  }
 
   const productGroups = useMemo(
     () => (data?.products?.length ? groupProducts(data.products) : {}),
@@ -147,7 +196,7 @@ export default function VulnDetailPage() {
   }, [data]);
 
   if (loading) return <div className="text-sm text-muted">Загрузка карточки CVE…</div>;
-  if (err) {
+  if (err && !data) {
     return (
       <Card className="border-danger/40 text-danger" role="alert">
         {err}
@@ -161,6 +210,11 @@ export default function VulnDetailPage() {
 
   return (
     <div className="space-y-6" data-testid="cve-detail">
+      {err && (
+        <Card className="border-danger/40 text-sm text-danger" role="alert">
+          {err}
+        </Card>
+      )}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <Link
           href="/search"
@@ -169,6 +223,16 @@ export default function VulnDetailPage() {
           <ArrowLeft size={14} />К поиску
         </Link>
         <div className="flex flex-wrap gap-2">
+          <Button
+            type="button"
+            variant={watching ? "secondary" : "ghost"}
+            onClick={() => void toggleWatch()}
+            disabled={watchBusy}
+            data-testid="watch-cve"
+          >
+            {watching ? <BookmarkCheck size={14} /> : <Bookmark size={14} />}
+            {watching ? "В watchlist" : "Watch"}
+          </Button>
           <Button
             type="button"
             variant="secondary"
@@ -237,6 +301,26 @@ export default function VulnDetailPage() {
           <div className="rounded-xl border border-border/80 bg-surface2/50 px-3 py-2.5">
             <dt className="text-xs text-muted">Source</dt>
             <dd className="mt-0.5 font-medium">{data.source || "—"}</dd>
+          </div>
+          <div className="rounded-xl border border-border/80 bg-surface2/50 px-3 py-2.5">
+            <dt className="text-xs text-muted">Уязвимое ПО</dt>
+            <dd className="mt-0.5 font-medium">
+              {data.affected?.app || (data.affected?.apps || []).join(", ") || "—"}
+            </dd>
+          </div>
+          <div className="rounded-xl border border-border/80 bg-surface2/50 px-3 py-2.5">
+            <dt className="text-xs text-muted">ОС</dt>
+            <dd className="mt-0.5 font-medium">
+              {data.affected?.os || (data.affected?.oses || []).join(", ") || "—"}
+            </dd>
+          </div>
+          <div className="rounded-xl border border-border/80 bg-surface2/50 px-3 py-2.5 sm:col-span-2">
+            <dt className="text-xs text-muted">Версии</dt>
+            <dd className="mt-0.5 font-medium">
+              {data.affected?.version ||
+                (data.affected?.versions || []).join("; ") ||
+                "—"}
+            </dd>
           </div>
         </dl>
       </div>
@@ -332,6 +416,48 @@ export default function VulnDetailPage() {
             </Section>
           )}
 
+          {(data.affected?.apps?.length ||
+            data.affected?.oses?.length ||
+            data.affected?.versions?.length) && (
+            <Section title="Затронутые продукты / ОС / версии">
+              <dl className="grid gap-3 text-sm sm:grid-cols-3">
+                <div>
+                  <dt className="text-xs text-muted">Приложение / ПО</dt>
+                  <dd className="mt-1 flex flex-wrap gap-1">
+                    {(data.affected?.apps || []).length
+                      ? data.affected!.apps!.map((a) => <Badge key={a}>{a}</Badge>)
+                      : "—"}
+                  </dd>
+                </div>
+                <div>
+                  <dt className="text-xs text-muted">ОС</dt>
+                  <dd className="mt-1 flex flex-wrap gap-1">
+                    {(data.affected?.oses || []).length
+                      ? data.affected!.oses!.map((o) => <Badge key={o} tone="neutral">{o}</Badge>)
+                      : "—"}
+                  </dd>
+                </div>
+                <div>
+                  <dt className="text-xs text-muted">Версии</dt>
+                  <dd className="mt-1 flex flex-wrap gap-1">
+                    {(data.affected?.versions || []).length
+                      ? data.affected!.versions!.map((v) => (
+                          <Badge key={v} tone="accent">
+                            {v}
+                          </Badge>
+                        ))
+                      : "—"}
+                  </dd>
+                </div>
+              </dl>
+              {data.affected?.sources?.length ? (
+                <p className="mt-2 text-xs text-muted">
+                  Источник: {data.affected.sources.join(", ")}
+                </p>
+              ) : null}
+            </Section>
+          )}
+
           {data.cwes?.length > 0 && (
             <Section title="CWEs">
               <div className="flex flex-wrap gap-2">
@@ -366,16 +492,16 @@ export default function VulnDetailPage() {
             </Section>
           )}
 
-          {data.epss && (
+          {(data.epss || (data.epss_history && data.epss_history.length > 0)) && (
             <Section title="EPSS — Exploit Prediction">
               <div className="flex flex-wrap items-end gap-6">
                 <div>
                   <div className="text-xs text-muted">Score</div>
                   <div className="font-display text-3xl font-semibold tabular-nums">
-                    {((data.epss.score ?? 0) * 100).toFixed(2)}%
+                    {((data.epss?.score ?? data.epss_history?.at(-1)?.score ?? 0) * 100).toFixed(2)}%
                   </div>
                 </div>
-                {data.epss.percentile != null && (
+                {data.epss?.percentile != null && (
                   <div>
                     <div className="text-xs text-muted">Percentile</div>
                     <div className="font-display text-2xl font-semibold">
@@ -383,16 +509,22 @@ export default function VulnDetailPage() {
                     </div>
                   </div>
                 )}
-                {data.epss.scored_at && (
+                <div className="min-w-[160px]">
+                  <div className="mb-1 text-xs text-muted">History</div>
+                  <EpssSparkline points={data.epss_history || []} />
+                </div>
+                {data.epss?.scored_at && (
                   <div className="text-xs text-muted">scored at {data.epss.scored_at}</div>
                 )}
               </div>
-              <div className="mt-3 h-2 overflow-hidden rounded-full bg-surface2">
-                <div
-                  className="h-full rounded-full bg-accent"
-                  style={{ width: `${Math.min(100, (data.epss.score ?? 0) * 100)}%` }}
-                />
-              </div>
+              {data.epss && (
+                <div className="mt-3 h-2 overflow-hidden rounded-full bg-surface2">
+                  <div
+                    className="h-full rounded-full bg-accent"
+                    style={{ width: `${Math.min(100, (data.epss.score ?? 0) * 100)}%` }}
+                  />
+                </div>
+              )}
             </Section>
           )}
 

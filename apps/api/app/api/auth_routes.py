@@ -49,7 +49,7 @@ def _client_meta(request: Request) -> tuple[str | None, str]:
 
 def _set_auth_cookies(response: Response, access: str, refresh: str) -> None:
     settings = get_settings()
-    if not settings.vbx_auth_cookies:
+    if not settings.auth_cookies_effective():
         return
     common = {
         "httponly": True,
@@ -69,12 +69,25 @@ def _set_auth_cookies(response: Response, access: str, refresh: str) -> None:
         max_age=settings.refresh_token_expire_days * 86400,
         **common,
     )
+    # Non-HttpOnly double-submit CSRF companion (readable by JS / BFF).
+    from app.core.middleware import issue_csrf_token
+
+    response.set_cookie(
+        "vbx_csrf",
+        issue_csrf_token(),
+        max_age=settings.refresh_token_expire_days * 86400,
+        httponly=False,
+        samesite="lax",
+        secure=settings.vbx_cookie_secure,
+        path="/",
+    )
 
 
 def _clear_auth_cookies(response: Response) -> None:
     settings = get_settings()
     response.delete_cookie(settings.vbx_access_cookie, path="/")
     response.delete_cookie(settings.vbx_refresh_cookie, path="/")
+    response.delete_cookie("vbx_csrf", path="/")
 
 
 def _issue_tokens(db: Session, user: User, request: Request, device_label: str) -> LoginResponse:
@@ -99,7 +112,7 @@ def _issue_tokens(db: Session, user: User, request: Request, device_label: str) 
 
 @router.get("/session-mode", response_model=SessionModeOut)
 def session_mode() -> SessionModeOut:
-    return SessionModeOut(cookies=get_settings().vbx_auth_cookies)
+    return SessionModeOut(cookies=get_settings().auth_cookies_effective())
 
 
 @router.post("/register", response_model=MessageOut)
@@ -229,7 +242,7 @@ def refresh_tokens(
     rate_limit(request, "refresh", limit=60, window=60)
     settings = get_settings()
     refresh_raw = (payload.refresh_token or "").strip()
-    if not refresh_raw and settings.vbx_auth_cookies:
+    if not refresh_raw and settings.auth_cookies_effective():
         refresh_raw = request.cookies.get(settings.vbx_refresh_cookie) or ""
     if not refresh_raw or len(refresh_raw) < 10:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Недействительный refresh-токен")

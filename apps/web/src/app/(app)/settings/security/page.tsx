@@ -1,7 +1,9 @@
 "use client";
 
 import { FormEvent, useEffect, useState } from "react";
-import { api } from "@/lib/api";
+import { Download } from "lucide-react";
+import { api, apiDownload } from "@/lib/api";
+import { buildQs } from "@/lib/queryString";
 import { useAuth } from "@/lib/useAuth";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
@@ -27,26 +29,57 @@ type Audit = {
   created_at?: string | null;
 };
 
+function auditQuery(params: {
+  action: string;
+  actor: string;
+  dateFrom: string;
+  dateTo: string;
+  limit?: number;
+}): string {
+  const qs = buildQs({
+    action: params.action,
+    user_id: params.actor,
+    date_from: params.dateFrom,
+    date_to: params.dateTo ? `${params.dateTo}T23:59:59` : undefined,
+    limit: params.limit ?? 80,
+  });
+  return qs ? `?${qs}` : "";
+}
+
 export default function SecuritySettingsPage() {
   const { user } = useAuth();
   const [data, setData] = useState<Security | null>(null);
   const [audit, setAudit] = useState<Audit[]>([]);
   const [actionFilter, setActionFilter] = useState("");
+  const [actorFilter, setActorFilter] = useState("");
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
   const [caPem, setCaPem] = useState("");
   const [msg, setMsg] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
 
   const canEdit = !!user?.is_super_admin;
 
+  async function loadAudit() {
+    const q = auditQuery({
+      action: actionFilter,
+      actor: actorFilter,
+      dateFrom,
+      dateTo,
+      limit: 80,
+    });
+    setAudit(await api<Audit[]>(`/settings/security/audit${q}`));
+  }
+
   async function load() {
     const s = await api<Security>("/settings/security");
     setData(s);
-    const a = await api<Audit[]>("/settings/security/audit?limit=40");
-    setAudit(a);
+    await loadAudit();
   }
 
   useEffect(() => {
     load().catch((e) => setErr(e.message));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   async function save() {
@@ -85,9 +118,22 @@ export default function SecuritySettingsPage() {
     }
   }
 
-  async function filterAudit() {
-    const q = actionFilter.trim() ? `?action=${encodeURIComponent(actionFilter.trim())}&limit=40` : "?limit=40";
-    setAudit(await api<Audit[]>(`/settings/security/audit${q}`));
+  async function exportAuditCsv() {
+    setErr(null);
+    try {
+      const q = auditQuery({
+        action: actionFilter,
+        actor: actorFilter,
+        dateFrom,
+        dateTo,
+        limit: 5000,
+      });
+      await apiDownload(`/settings/security/audit/export${q}`, {
+        filename: "audit-export.csv",
+      });
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Ошибка экспорта");
+    }
   }
 
   if (!data) return <div className="text-sm text-muted">Загрузка…</div>;
@@ -134,13 +180,18 @@ export default function SecuritySettingsPage() {
             </Badge>
           )}
         </label>
-        <p className="text-xs text-muted">
-          Приложение хранит CA и инструкции; enforcement ожидается на reverse-proxy / ingress, не в FastAPI.
-        </p>
+        <div className="rounded-lg border border-border/80 bg-surface2/40 px-3 py-2 text-xs leading-relaxed text-muted">
+          <p className="font-medium text-text">mTLS: только edge / reverse-proxy</p>
+          <ul className="mt-1 list-inside list-disc space-y-0.5">
+            <li>Включите verify client на nginx/Traefik/HAProxy с вашим org CA.</li>
+            <li>CA PEM ниже — инвентарь и документация; прокси должен загрузить тот же CA.</li>
+            <li>Не открывайте FastAPI :8000 наружу без прокси; VBX не проверяет client cert сам.</li>
+          </ul>
+        </div>
         <label className="block text-sm">
           <span className="mb-1 block text-muted">Инструкции mTLS</span>
           <textarea
-            className="min-h-[80px] w-full rounded-xl border border-border bg-bg px-3 py-2 text-sm"
+            className="vbx-field min-h-[100px]"
             value={data.mtls_instructions}
             disabled={!canEdit}
             onChange={(e) => setData({ ...data, mtls_instructions: e.target.value })}
@@ -158,7 +209,7 @@ export default function SecuritySettingsPage() {
           <h2 className="mb-2 font-display text-lg font-semibold">Загрузка CA (PEM)</h2>
           <form onSubmit={uploadCa} className="space-y-2">
             <textarea
-              className="min-h-[100px] w-full rounded-xl border border-border bg-bg px-3 py-2 font-mono text-xs"
+              className="vbx-field min-h-[100px] font-mono text-xs"
               placeholder="-----BEGIN CERTIFICATE-----"
               value={caPem}
               onChange={(e) => setCaPem(e.target.value)}
@@ -169,11 +220,45 @@ export default function SecuritySettingsPage() {
       )}
 
       <Card>
-        <div className="mb-3 flex flex-wrap items-end gap-2">
+        <div className="mb-3 flex flex-wrap items-end justify-between gap-2">
           <h2 className="font-display text-lg font-semibold">Журнал аудита</h2>
-          <div className="ml-auto flex gap-2">
-            <Input label="Фильтр action" value={actionFilter} onChange={(e) => setActionFilter(e.target.value)} />
-            <Button type="button" variant="secondary" onClick={filterAudit}>
+          <Button type="button" variant="secondary" onClick={() => void exportAuditCsv()}>
+            <Download size={14} />
+            CSV
+          </Button>
+        </div>
+        <div className="mb-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-5">
+          <Input
+            label="Action"
+            value={actionFilter}
+            onChange={(e) => setActionFilter(e.target.value)}
+            placeholder="security.update"
+          />
+          <Input
+            label="Actor user id"
+            value={actorFilter}
+            onChange={(e) => setActorFilter(e.target.value)}
+            placeholder="1"
+          />
+          <Input
+            label="Date from"
+            type="date"
+            value={dateFrom}
+            onChange={(e) => setDateFrom(e.target.value)}
+          />
+          <Input
+            label="Date to"
+            type="date"
+            value={dateTo}
+            onChange={(e) => setDateTo(e.target.value)}
+          />
+          <div className="flex items-end">
+            <Button
+              type="button"
+              variant="secondary"
+              className="w-full"
+              onClick={() => loadAudit().catch((e) => setErr(e.message))}
+            >
               Фильтр
             </Button>
           </div>
@@ -186,6 +271,7 @@ export default function SecuritySettingsPage() {
                 <th className="pb-2">User</th>
                 <th className="pb-2">Action</th>
                 <th className="pb-2">Resource</th>
+                <th className="pb-2">IP</th>
               </tr>
             </thead>
             <tbody>
@@ -195,6 +281,7 @@ export default function SecuritySettingsPage() {
                   <td className="py-2">{a.actor_user_id ?? "—"}</td>
                   <td className="py-2 font-mono text-xs">{a.action}</td>
                   <td className="py-2 text-xs text-muted">{a.resource}</td>
+                  <td className="py-2 text-xs text-muted">{a.ip_address || "—"}</td>
                 </tr>
               ))}
             </tbody>

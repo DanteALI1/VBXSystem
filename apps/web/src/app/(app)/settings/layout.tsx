@@ -2,9 +2,18 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { hasPermission } from "@/lib/api";
 import { useAuth } from "@/lib/useAuth";
 
-const LINKS = [
+type SettingsLink = {
+  href: string;
+  label: string;
+  superAdmin?: boolean;
+  admin?: boolean;
+  scan?: boolean;
+};
+
+const LINKS: SettingsLink[] = [
   { href: "/settings/profile", label: "Профиль" },
   { href: "/settings/watchlist", label: "Watchlist" },
   { href: "/settings/notifications", label: "Уведомления" },
@@ -13,7 +22,11 @@ const LINKS = [
   { href: "/settings/branding", label: "Брендинг", admin: true },
   { href: "/settings/database", label: "База данных", admin: true },
   { href: "/settings/system", label: "Система", admin: true },
+  { href: "/settings/modules", label: "Модули", scan: true },
+  { href: "/settings/tickets", label: "Заявки", admin: true },
   { href: "/settings/integrations", label: "Интеграции", superAdmin: true },
+  { href: "/settings/alerts", label: "Алерты", superAdmin: true },
+  { href: "/settings/org-units", label: "Орг. единицы", superAdmin: true },
   { href: "/settings/api-keys", label: "API ключи", admin: true },
 ];
 
@@ -26,6 +39,10 @@ export default function SettingsLayout({ children }: { children: React.ReactNode
   }
 
   const canAdmin = !!user && (user.is_super_admin || user.roles.includes("admin"));
+  const canScan =
+    hasPermission(user, "scan:read") ||
+    hasPermission(user, "scan:admin") ||
+    canAdmin;
 
   return (
     <div className="space-y-6">
@@ -37,6 +54,7 @@ export default function SettingsLayout({ children }: { children: React.ReactNode
         {LINKS.filter((l) => {
           if (l.superAdmin && !user?.is_super_admin) return false;
           if (l.admin && !canAdmin) return false;
+          if (l.scan && !canScan) return false;
           return true;
         }).map((l) => {
           const active = pathname === l.href || pathname.startsWith(l.href + "/");

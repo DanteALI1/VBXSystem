@@ -9,7 +9,9 @@ from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 
 from app.models import BduRecord, CisaKev, CveBduLink, CveRecord, EpssScore, LocalVuln
+from app.services.epss_service import get_epss_history
 from app.services.local_vulns import local_to_search_hit
+from app.services.affected_extract import extract_affected
 from app.services.xdb import exploits_for_cve
 
 
@@ -18,12 +20,13 @@ def _is_postgres(db: Session) -> bool:
 
 
 def _text_match(db: Session, *columns, q: str):
-    """ILIKE always; on Postgres also similarity via pg_trgm for longer queries."""
+    """ILIKE always; on Postgres also `%` (pg_trgm) so GIN indexes can help."""
     like = f"%{q}%"
     clauses = [col.ilike(like) for col in columns]
     if _is_postgres(db) and len(q) >= 3:
         for col in columns:
-            clauses.append(func.similarity(col, q) > 0.15)
+            # `%` operator uses gin_trgm_ops; similarity() alone often cannot.
+            clauses.append(col.op("%")(q))
     return or_(*clauses)
 
 
@@ -325,6 +328,7 @@ def get_cve_detail(db: Session, cve_id: str) -> dict | None:
         "epss": None
         if not epss
         else {"score": epss.score, "percentile": epss.percentile, "scored_at": epss.scored_at},
+        "epss_history": get_epss_history(db, cve.id, limit=90),
         "bdu": [
             {
                 "id": b.id,
@@ -340,6 +344,12 @@ def get_cve_detail(db: Session, cve_id: str) -> dict | None:
             for b in bdus
         ],
         "exploits": exploits_for_cve(db, cve.id),
+        "affected": extract_affected(
+            products=cve.products,
+            description=cve.description or "",
+            kev_product=(kev.product if kev else "") or "",
+            kev_vendor=(kev.vendor_project if kev else "") or "",
+        ),
     }
 
 

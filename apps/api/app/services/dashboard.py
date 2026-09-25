@@ -8,6 +8,7 @@ from datetime import datetime, timedelta, timezone
 from sqlalchemy import and_, func, or_
 from sqlalchemy.orm import Session
 
+from app.core.cache import cache_get, cache_set
 from app.models import BduRecord, CisaKev, CveRecord, EpssScore, LocalVuln, SyncRun, User
 from app.services.auth_helpers import get_setting
 from app.services import watchlist as wl
@@ -19,6 +20,10 @@ ATTENTION_LIMIT = 12
 CRITICAL_SCORE_FLOOR = 9.0
 DEFAULT_EPSS_MIN = 0.7
 
+# Shared dashboard shell (KPIs / charts / catalog) — not user-specific.
+_SHARED_CACHE_TTL = 45
+_ATTENTION_CACHE_TTL = 30
+
 
 def _day_start(days_ago: int = 0) -> datetime:
     now = datetime.now(timezone.utc)
@@ -26,11 +31,16 @@ def _day_start(days_ago: int = 0) -> datetime:
     return today - timedelta(days=days_ago)
 
 
+def _iso_day(dt: datetime) -> str:
+    return dt.date().isoformat()
+
+
 def _last_sync(db: Session, source: str) -> dict | None:
+    """Latest run for source (any status) so UI can show failures."""
     run = (
         db.query(SyncRun)
-        .filter(SyncRun.source == source, SyncRun.status == "success")
-        .order_by(SyncRun.finished_at.desc())
+        .filter(SyncRun.source == source)
+        .order_by(SyncRun.id.desc())
         .first()
     )
     if not run:
@@ -132,6 +142,30 @@ def _latest_epss_map(db: Session, cve_ids: list[str]) -> dict[str, float]:
     return out
 
 
+def _kev_rows_added_since(db: Session, since: datetime) -> list[CisaKev]:
+    """KEVs catalogued on/after ``since`` via CisaKev.date_added (ISO YYYY-MM-DD).
+
+    CISA feeds use ISO dates; lexicographic compare matches calendar order.
+    """
+    since_str = _iso_day(since)
+    return (
+        db.query(CisaKev)
+        .filter(CisaKev.date_added != "", CisaKev.date_added >= since_str)
+        .all()
+    )
+
+
+def _count_kev_added_since(db: Session, since: datetime) -> int:
+    since_str = _iso_day(since)
+    return int(
+        db.query(func.count())
+        .select_from(CisaKev)
+        .filter(CisaKev.date_added != "", CisaKev.date_added >= since_str)
+        .scalar()
+        or 0
+    )
+
+
 def _watchlist_cve_ids(db: Session, user: User | None) -> set[str]:
     if not user:
         return set()
@@ -148,12 +182,13 @@ def _watchlist_cve_ids(db: Session, user: User | None) -> set[str]:
             product_needles.append(e.value.lower())
 
     if vendor_needles or product_needles:
-        kev_rows = db.query(CisaKev).all()
-        for k in kev_rows:
-            vp = (k.vendor_project or "").lower()
-            pr = (k.product or "").lower()
-            if any(n in vp for n in vendor_needles) or any(n in pr for n in product_needles):
-                ids.add(k.cve_id.upper())
+        conds = []
+        for n in vendor_needles:
+            conds.append(func.lower(CisaKev.vendor_project).contains(n))
+        for n in product_needles:
+            conds.append(func.lower(CisaKev.product).contains(n))
+        for k in db.query(CisaKev).filter(or_(*conds)).all():
+            ids.add(k.cve_id.upper())
         # Also scan recent high-signal CVEs products JSON (bounded)
         recent = (
             db.query(CveRecord)
@@ -211,13 +246,16 @@ def _attention_feed(
         .all()
     )
 
-    # New KEV by date_added within 7d (may be older published_at)
-    kev_catalog = {k.cve_id: k for k in db.query(CisaKev).all()}
+    # New KEV by date_added within 7d only (bounded; no full catalog scan)
+    kev_new_catalog = {k.cve_id: k for k in _kev_rows_added_since(db, kev_new_since)}
+    # Defensive filter for rare non-ISO date_added values that slipped past string compare
     kev_new_ids = {
         cid
-        for cid, k in kev_catalog.items()
+        for cid, k in kev_new_catalog.items()
         if (dt := _parse_kev_date(k.date_added)) is not None and dt >= kev_new_since
     }
+    kev_catalog: dict[str, CisaKev] = dict(kev_new_catalog)
+
     kev_new_rows = []
     if kev_new_ids:
         kev_new_rows = db.query(CveRecord).filter(CveRecord.id.in_(list(kev_new_ids))).all()
@@ -243,14 +281,10 @@ def _attention_feed(
         reasons: list[str] = []
         if c.id.upper() in watch_ids:
             reasons.append("watchlist")
-        if c.id in kev_new_ids or (c.is_cisa_kev and c.id in kev_new_ids):
+        if c.id in kev_new_ids:
             reasons.append("kev_new")
         elif c.is_cisa_kev:
-            # also treat recently published KEV as kev_new if published in 7d
-            if c.published_at and c.published_at >= kev_new_since:
-                reasons.append("kev_new")
-            else:
-                reasons.append("kev")
+            reasons.append("kev")
         if epss is not None and epss >= epss_min:
             reasons.append("epss")
         if c.cvss_score is not None and c.cvss_score >= CRITICAL_SCORE_FLOOR:
@@ -303,12 +337,8 @@ def _attention_feed(
     ]
 
 
-def get_dashboard(
-    db: Session,
-    *,
-    chart_range: str = "1M",
-    user: User | None = None,
-) -> dict:
+def _compute_shared(db: Session, chart_range: str) -> dict:
+    """User-agnostic dashboard payload (KPIs, chart, catalog, sync, EPSS lists)."""
     today = _day_start(0)
     week = _day_start(7)
     prev_week = _day_start(14)
@@ -327,10 +357,10 @@ def get_dashboard(
         .count()
     )
 
-    kev_week = db.query(CveRecord).filter(CveRecord.is_cisa_kev.is_(True), CveRecord.published_at >= week).count()
+    # kev_week = catalogued in last 7 days by CisaKev.date_added (not CVE published_at)
+    kev_week = _count_kev_added_since(db, week)
     kev_total = db.query(CveRecord).filter(CveRecord.is_cisa_kev.is_(True)).count()
-    if kev_week == 0 and kev_total:
-        kev_week = kev_total
+    kev_catalog = db.query(CisaKev).count()
 
     days = {"1M": 30, "6M": 180, "1Y": 365}.get(chart_range.upper() if chart_range else "1M", 30)
     start = _day_start(days)
@@ -355,12 +385,6 @@ def get_dashboard(
     except ValueError:
         epss_min = DEFAULT_EPSS_MIN
 
-    attention = _attention_feed(db, user=user, window_days=ATTENTION_WINDOW_DAYS)
-    recent_kev = [h for h in attention if h["is_cisa_kev"]][:8]
-    recent_critical = [h for h in attention if (h.get("cvss_score") or 0) >= CRITICAL_SCORE_FLOOR][:8]
-    if not recent_critical:
-        recent_critical = attention[:8]
-
     epss_overview = get_epss_overview(db, limit=8)
     cve_total = db.query(CveRecord).count()
     bdu_total = db.query(BduRecord).count()
@@ -374,22 +398,19 @@ def get_dashboard(
             "cves_week_delta_pct": _pct_delta(cves_week, cves_prev_week),
             "kev_week": kev_week,
             "kev_total": kev_total,
-            "kev_catalog": db.query(CisaKev).count(),
+            "kev_catalog": kev_catalog,
         },
         "catalog_stats": {
             "cve_total": cve_total,
             "bdu_total": bdu_total,
             "local_total": local_total,
-            "kev_catalog": db.query(CisaKev).count(),
+            "kev_catalog": kev_catalog,
             "epss_scored": epss_overview.get("total_scored") or 0,
         },
         "chart_range": chart_range,
         "activity": activity,
-        "attention_feed": attention,
         "attention_window_days": ATTENTION_WINDOW_DAYS,
         "attention_epss_min": epss_min,
-        "recent_critical": recent_critical,
-        "recent_kev": recent_kev,
         "epss_top": epss_overview.get("top_predictions") or [],
         "epss_deltas": epss_overview.get("top_deltas") or [],
         "sync_health": {
@@ -398,4 +419,37 @@ def get_dashboard(
             "kev": _last_sync(db, "kev"),
             "epss": _last_sync(db, "epss"),
         },
+    }
+
+
+def get_dashboard(
+    db: Session,
+    *,
+    chart_range: str = "1M",
+    user: User | None = None,
+) -> dict:
+    cr = (chart_range or "1M").upper()
+    shared_key = f"dash:shared:v1:{cr}"
+    shared = cache_get(shared_key)
+    if shared is None:
+        shared = _compute_shared(db, cr)
+        cache_set(shared_key, shared, _SHARED_CACHE_TTL)
+
+    uid = getattr(user, "id", None) or 0
+    attn_key = f"dash:attn:v1:{uid}:{ATTENTION_WINDOW_DAYS}"
+    attention = cache_get(attn_key)
+    if attention is None:
+        attention = _attention_feed(db, user=user, window_days=ATTENTION_WINDOW_DAYS)
+        cache_set(attn_key, attention, _ATTENTION_CACHE_TTL)
+
+    recent_kev = [h for h in attention if h["is_cisa_kev"]][:8]
+    recent_critical = [h for h in attention if (h.get("cvss_score") or 0) >= CRITICAL_SCORE_FLOOR][:8]
+    if not recent_critical:
+        recent_critical = attention[:8]
+
+    return {
+        **shared,
+        "attention_feed": attention,
+        "recent_critical": recent_critical,
+        "recent_kev": recent_kev,
     }

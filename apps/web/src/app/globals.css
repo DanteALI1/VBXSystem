@@ -3,6 +3,7 @@
 @tailwind utilities;
 
 :root {
+  color-scheme: dark;
   --vbx-bg: #0b0e14;
   --vbx-surface: #12161f;
   --vbx-surface-2: #181e2a;
@@ -15,11 +16,18 @@
   --vbx-warn: #fbbf24;
   --vbx-ok: #34d399;
   --vbx-kev: #f59e0b;
+  --vbx-field: #141a26;
+  --vbx-field-hover: #1a2232;
 }
 
 @layer base {
   * {
     box-sizing: border-box;
+  }
+
+  html {
+    color-scheme: dark;
+    accent-color: var(--vbx-accent);
   }
 
   html,
@@ -47,6 +55,39 @@
   textarea,
   button {
     font: inherit;
+    color-scheme: dark;
+  }
+
+  /* Unified dark fields — native UA light chrome was showing through */
+  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="file"]):not([type="color"]):not([type="hidden"]),
+  select,
+  textarea {
+    color: var(--vbx-text);
+    background-color: var(--vbx-field);
+    border-color: var(--vbx-border);
+    caret-color: var(--vbx-text);
+  }
+
+  input::placeholder,
+  textarea::placeholder {
+    color: color-mix(in srgb, var(--vbx-muted) 75%, transparent);
+  }
+
+  select option,
+  select optgroup {
+    background-color: var(--vbx-surface);
+    color: var(--vbx-text);
+  }
+
+  input:-webkit-autofill,
+  input:-webkit-autofill:hover,
+  input:-webkit-autofill:focus,
+  textarea:-webkit-autofill,
+  select:-webkit-autofill {
+    -webkit-text-fill-color: var(--vbx-text);
+    caret-color: var(--vbx-text);
+    box-shadow: 0 0 0 1000px var(--vbx-field) inset;
+    transition: background-color 9999s ease-out;
   }
 }
 
@@ -71,9 +112,42 @@
     @apply mt-1 font-display text-lg font-semibold text-text;
   }
 
+  /* Canonical control surface — use on all inputs/selects/textareas */
+  .vbx-field {
+    @apply w-full rounded-xl border border-border px-3 py-2 text-sm text-text outline-none transition focus:border-accent;
+    background-color: var(--vbx-field);
+  }
+
+  .vbx-field::placeholder {
+    color: color-mix(in srgb, var(--vbx-muted) 70%, transparent);
+  }
+
+  .vbx-field-sm {
+    @apply rounded-md border border-border px-2 py-1 text-xs text-text outline-none transition focus:border-accent;
+    background-color: var(--vbx-field);
+  }
+
+  .vbx-field-sm::placeholder {
+    color: color-mix(in srgb, var(--vbx-muted) 70%, transparent);
+  }
+
   .vbx-row-kev {
     border-left: 2px solid var(--vbx-warn);
     background: rgba(251, 191, 36, 0.06);
+  }
+
+  /* Search results: denser on narrow viewports */
+  @media (max-width: 768px) {
+    .vbx-results-table {
+      font-size: 0.7rem;
+    }
+    .vbx-results-table th,
+    .vbx-results-table td {
+      padding-top: 0.25rem !important;
+      padding-bottom: 0.25rem !important;
+      padding-left: 0.4rem !important;
+      padding-right: 0.4rem !important;
+    }
   }
 
   .vbx-fade-in {
@@ -90,4 +164,93 @@
     opacity: 1;
     transform: none;
   }
+}
+
+/* Dashboard grid: visible resize handles in edit mode */
+.vbx-dash-grid--editing .react-grid-item {
+  transition: box-shadow 0.15s ease;
+}
+
+.vbx-dash-grid--editing .react-grid-item.react-grid-item--resizing,
+.vbx-dash-grid--editing .react-grid-item.react-draggable-dragging {
+  z-index: 20;
+  box-shadow: 0 0 0 1px rgba(59, 130, 246, 0.55), 0 12px 32px rgba(0, 0, 0, 0.35);
+}
+
+.vbx-dash-grid--editing .react-grid-item > .react-resizable-handle {
+  opacity: 0.55;
+  background: none;
+  z-index: 12;
+}
+
+.vbx-dash-grid--editing .react-grid-item:hover > .react-resizable-handle,
+.vbx-dash-grid--editing .react-grid-item.react-grid-item--resizing > .react-resizable-handle {
+  opacity: 1;
+}
+
+.vbx-dash-grid--editing .react-resizable-handle::after {
+  content: "";
+  position: absolute;
+  border-color: var(--vbx-accent) !important;
+  border-style: solid !important;
+  border-width: 0 2px 2px 0 !important;
+  width: 8px !important;
+  height: 8px !important;
+  right: 4px !important;
+  bottom: 4px !important;
+}
+
+.vbx-dash-grid--editing .react-resizable-handle-se {
+  width: 18px !important;
+  height: 18px !important;
+  right: 2px !important;
+  bottom: 2px !important;
+  cursor: se-resize;
+}
+
+.vbx-dash-grid--editing .react-resizable-handle-e {
+  width: 10px !important;
+  right: 0 !important;
+  top: 18% !important;
+  height: 64% !important;
+  cursor: e-resize;
+}
+
+.vbx-dash-grid--editing .react-resizable-handle-e::after {
+  top: 50%;
+  bottom: auto;
+  right: 3px;
+  width: 3px !important;
+  height: 22px !important;
+  border-width: 0 2px 0 0 !important;
+  border-radius: 2px;
+  transform: translateY(-50%);
+  background: var(--vbx-accent);
+  border: none !important;
+}
+
+.vbx-dash-grid--editing .react-resizable-handle-s {
+  height: 10px !important;
+  bottom: 0 !important;
+  left: 18% !important;
+  width: 64% !important;
+  cursor: s-resize;
+}
+
+.vbx-dash-grid--editing .react-resizable-handle-s::after {
+  left: 50%;
+  right: auto;
+  bottom: 3px;
+  width: 22px !important;
+  height: 3px !important;
+  border: none !important;
+  border-radius: 2px;
+  background: var(--vbx-accent);
+  transform: translateX(-50%);
+}
+
+.vbx-dash-item--editing {
+  outline: 1px dashed rgba(59, 130, 246, 0.28);
+  outline-offset: -1px;
+  border-radius: 1rem;
 }

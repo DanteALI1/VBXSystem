@@ -10,7 +10,7 @@ import {
   RefreshCw,
   Upload,
 } from "lucide-react";
-import { api, getToken } from "@/lib/api";
+import { api, getToken, hasPermission } from "@/lib/api";
 import { useAuth } from "@/lib/useAuth";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
@@ -33,6 +33,7 @@ type DbSettings = {
   nvd_auto_interval_hours: number;
   nvd_mock_mode: boolean;
   bdu_xml_url?: string;
+  cve_store_raw_json?: boolean;
   last_nvd_sync: SyncRun | null;
   last_bdu_sync: SyncRun | null;
   last_kev_sync: SyncRun | null;
@@ -69,7 +70,8 @@ export default function DatabaseSettingsPage() {
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
-  const canManage = !!user && (user.is_super_admin || user.roles.includes("admin"));
+  const canManage =
+    hasPermission(user, "vuln:sync") || hasPermission(user, "settings:write");
 
   const reload = useCallback(async () => {
     const res = await api<DbSettings>("/settings/database");
@@ -189,6 +191,31 @@ export default function DatabaseSettingsPage() {
       body: JSON.stringify({ enabled }),
     });
     await reload();
+  }
+
+  async function toggleStoreRawJson(enabled: boolean) {
+    await api("/settings/database/cve-store-raw-json", {
+      method: "PUT",
+      body: JSON.stringify({ enabled }),
+    });
+    setMsg(enabled ? "Хранение raw_json включено" : "raw_json отключён для новых sync");
+    await reload();
+  }
+
+  async function pruneRawJson() {
+    if (!confirm("Обрезать крупные raw_json в БД? Операция необратима.")) return;
+    setBusy(true);
+    try {
+      const res = await api<{ message: string }>("/settings/database/prune-raw-json", {
+        method: "POST",
+        body: JSON.stringify({ confirm: true, min_bytes: 10000, limit: 50000 }),
+      });
+      setMsg(res.message);
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Ошибка prune");
+    } finally {
+      setBusy(false);
+    }
   }
 
   async function exportDb() {
@@ -341,6 +368,35 @@ export default function DatabaseSettingsPage() {
               }`}
             />
           </button>
+        </div>
+
+        <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-border pt-4">
+          <div>
+            <div className="font-medium">Хранить NVD raw_json</div>
+            <div className="text-sm text-muted">
+              Env <code className="text-xs">VBX_CVE_STORE_RAW_JSON</code> / настройка. Off → stub при sync.
+            </div>
+          </div>
+          <button
+            type="button"
+            role="switch"
+            aria-checked={!!data.cve_store_raw_json}
+            onClick={() => toggleStoreRawJson(!data.cve_store_raw_json)}
+            className={`relative h-7 w-12 rounded-full transition ${
+              data.cve_store_raw_json ? "bg-accent" : "bg-border"
+            }`}
+          >
+            <span
+              className={`absolute top-0.5 h-6 w-6 rounded-full bg-white transition ${
+                data.cve_store_raw_json ? "left-5" : "left-0.5"
+              }`}
+            />
+          </button>
+        </div>
+        <div className="mt-3">
+          <Button type="button" variant="secondary" disabled={busy} onClick={pruneRawJson}>
+            Prune крупные raw_json
+          </Button>
         </div>
       </Card>
 

@@ -8,6 +8,7 @@ from sqlalchemy.orm import joinedload
 from app.api import (
     api_keys_routes,
     auth_routes,
+    auth_sso_routes,
     branding_routes,
     cveql_routes,
     dashboard_routes,
@@ -16,19 +17,24 @@ from app.api import (
     groups_routes,
     integrations_routes,
     local_routes,
+    modules_routes,
     notifications_routes,
+    ops_routes,
     profile_routes,
     routes,
     search_routes,
+    search_views_routes,
     security_routes,
+    setup_routes,
     system_routes,
     tickets_routes,
     users_routes,
     watchlist_routes,
+    wave2_routes,
     xdb_routes,
 )
 from app.core.config import get_settings
-from app.core.middleware import RequestSizeLimitMiddleware, SecurityHeadersMiddleware
+from app.core.middleware import CookieCsrfMiddleware, RequestSizeLimitMiddleware, SecurityHeadersMiddleware
 from app.db import SessionLocal
 from app.models import User
 from app.seed import run_seed
@@ -43,20 +49,37 @@ async def lifespan(_: FastAPI):
         print(f"[vbx-api] seed skipped: {exc}")
     finally:
         db.close()
+    # Non-blocking: official nuclei templates git sync + index rebuild
+    try:
+        from app.services.nuclei_templates import ensure_dirs, start_background_sync
+
+        ensure_dirs()
+        start_background_sync(reason="startup")
+    except Exception as exc:  # pragma: no cover
+        print(f"[vbx-api] nuclei templates sync schedule skipped: {exc}")
     yield
 
 
 def create_app() -> FastAPI:
     settings = get_settings()
-    app = FastAPI(title="VBXSystem API", version="0.9.0", lifespan=lifespan)
-    # Last added = outermost. Order: size limit → trusted host → CORS → security headers.
+    app = FastAPI(title="VBXSystem API", version="0.10.0", lifespan=lifespan)
+    # Last added = outermost. Order: size limit → trusted host → CORS → CSRF → security headers.
     app.add_middleware(SecurityHeadersMiddleware)
+    app.add_middleware(CookieCsrfMiddleware)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.cors_origins_list or ["*"],
         allow_credentials=True,
         allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-        allow_headers=["Authorization", "Content-Type", "X-API-Key", "Accept"],
+        allow_headers=[
+            "Authorization",
+            "Content-Type",
+            "X-API-Key",
+            "X-Module-Token",
+            "X-Module-Id",
+            "X-CSRF-Token",
+            "Accept",
+        ],
     )
     hosts = settings.trusted_hosts_list
     if hosts:
@@ -64,13 +87,16 @@ def create_app() -> FastAPI:
     app.add_middleware(RequestSizeLimitMiddleware)
     app.include_router(routes.router)
     app.include_router(auth_routes.router)
+    app.include_router(auth_sso_routes.router)
     app.include_router(branding_routes.router)
+    app.include_router(setup_routes.router)
     app.include_router(profile_routes.router)
     app.include_router(users_routes.router)
     app.include_router(groups_routes.router)
     app.include_router(database_routes.router)
     app.include_router(system_routes.router)
     app.include_router(search_routes.router)
+    app.include_router(search_views_routes.router)
     app.include_router(local_routes.router)
     app.include_router(dashboard_routes.router)
     app.include_router(epss_routes.router)
@@ -81,7 +107,11 @@ def create_app() -> FastAPI:
     app.include_router(integrations_routes.router)
     app.include_router(api_keys_routes.router)
     app.include_router(tickets_routes.router)
+    app.include_router(tickets_routes.settings_router)
     app.include_router(watchlist_routes.router)
+    app.include_router(modules_routes.router)
+    app.include_router(ops_routes.router)
+    app.include_router(wave2_routes.router)
     return app
 
 

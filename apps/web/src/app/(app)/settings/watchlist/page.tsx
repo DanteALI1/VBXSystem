@@ -78,7 +78,7 @@ export default function WatchlistSettingsPage() {
           <label className="text-sm">
             <span className="mb-1 block text-muted">Тип</span>
             <select
-              className="rounded-xl border border-border bg-surface2 px-3 py-2"
+              className="vbx-field w-auto"
               value={kind}
               onChange={(e) => setKind(e.target.value)}
             >

@@ -48,13 +48,28 @@ services:
       VBX_NVD_API_KEY: ${VBX_NVD_API_KEY:-}
       VBX_PROFILE: ${VBX_PROFILE:-dev}
       VBX_EPSS_MOCK: ${VBX_EPSS_MOCK:-}
-      VBX_AUTH_COOKIES: ${VBX_AUTH_COOKIES:-false}
+      # Empty → API derives from VBX_PROFILE (prod → cookies on)
+      VBX_AUTH_COOKIES: ${VBX_AUTH_COOKIES:-}
       VBX_COOKIE_SECURE: ${VBX_COOKIE_SECURE:-false}
+      VBX_PUBLIC_URL: ${VBX_PUBLIC_URL:-http://localhost}
       VBX_CORS_ORIGINS: ${VBX_CORS_ORIGINS:-http://localhost,http://127.0.0.1}
       VBX_TIMEZONE: ${VBX_TIMEZONE:-Europe/Moscow}
       TZ: ${VBX_TIMEZONE:-Europe/Moscow}
+      VBX_MODULE_TOKEN: ${VBX_MODULE_TOKEN:-dev-module-token-change-me}
+      VBX_CVE_STORE_RAW_JSON: ${VBX_CVE_STORE_RAW_JSON:-true}
+      VBX_ARTIFACTS_DIR: ${VBX_ARTIFACTS_DIR:-/app/artifacts}
+      VBX_NUCLEI_TEMPLATES_DIR: ${VBX_NUCLEI_TEMPLATES_DIR:-/app/artifacts/nuclei-templates}
+      VBX_NUCLEI_CUSTOM_DIR: ${VBX_NUCLEI_CUSTOM_DIR:-/app/artifacts/nuclei-custom}
+      NUCLEI_TEMPLATES_AUTO_SYNC: ${NUCLEI_TEMPLATES_AUTO_SYNC:-true}
     volumes:
       - vbx_uploads:/app/uploads
+      # Shared with scanner-gowitness (gowitness_data → /data on worker)
+      - gowitness_data:/app/artifacts/gowitness
+      # Official ProjectDiscovery pack (synced by API) + custom uploads
+      - nuclei_templates:/app/artifacts/nuclei-templates
+      - nuclei_custom:/app/artifacts/nuclei-custom
+      # Optional nuclei scan exports
+      - nuclei_data:/app/artifacts/nuclei
     ports:
       - "${VBX_API_PORT:-8000}:8000"
     depends_on:
@@ -81,9 +96,15 @@ services:
       VBX_NVD_API_KEY: ${VBX_NVD_API_KEY:-}
       VBX_PROFILE: ${VBX_PROFILE:-dev}
       VBX_EPSS_MOCK: ${VBX_EPSS_MOCK:-}
+      VBX_WORKER_MODE: sync
       TZ: ${VBX_TIMEZONE:-Europe/Moscow}
+      VBX_ARTIFACTS_DIR: ${VBX_ARTIFACTS_DIR:-/app/artifacts}
+      VBX_NUCLEI_TEMPLATES_DIR: ${VBX_NUCLEI_TEMPLATES_DIR:-/app/artifacts/nuclei-templates}
+      VBX_NUCLEI_CUSTOM_DIR: ${VBX_NUCLEI_CUSTOM_DIR:-/app/artifacts/nuclei-custom}
     volumes:
       - vbx_uploads:/app/uploads
+      - nuclei_templates:/app/artifacts/nuclei-templates
+      - nuclei_custom:/app/artifacts/nuclei-custom
     depends_on:
       postgres:
         condition: service_healthy
@@ -95,6 +116,40 @@ services:
     healthcheck:
       disable: true
 
+  ops-worker:
+    build:
+      context: ./apps/api
+    restart: unless-stopped
+    command: ["python", "-m", "app.worker"]
+    environment:
+      VBX_SECRET_KEY: ${VBX_SECRET_KEY}
+      VBX_DATABASE_URL: postgresql+psycopg://${VBX_POSTGRES_USER:-vbx}:${VBX_POSTGRES_PASSWORD}@postgres:5432/${VBX_POSTGRES_DB:-vbx}
+      VBX_REDIS_URL: redis://:${VBX_REDIS_PASSWORD}@redis:6379/0
+      VBX_NVD_API_KEY: ${VBX_NVD_API_KEY:-}
+      VBX_PROFILE: ${VBX_PROFILE:-dev}
+      VBX_EPSS_MOCK: ${VBX_EPSS_MOCK:-}
+      VBX_WORKER_MODE: ops
+      TZ: ${VBX_TIMEZONE:-Europe/Moscow}
+      VBX_ARTIFACTS_DIR: ${VBX_ARTIFACTS_DIR:-/app/artifacts}
+      VBX_NUCLEI_TEMPLATES_DIR: ${VBX_NUCLEI_TEMPLATES_DIR:-/app/artifacts/nuclei-templates}
+      VBX_NUCLEI_CUSTOM_DIR: ${VBX_NUCLEI_CUSTOM_DIR:-/app/artifacts/nuclei-custom}
+      VBX_SMTP_HOST: ${VBX_SMTP_HOST:-mailhog}
+      VBX_SMTP_PORT: ${VBX_SMTP_PORT:-1025}
+    volumes:
+      - vbx_uploads:/app/uploads
+      - nuclei_templates:/app/artifacts/nuclei-templates
+      - nuclei_custom:/app/artifacts/nuclei-custom
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      api:
+        condition: service_healthy
+    mem_limit: ${VBX_API_MEM_LIMIT:-1g}
+    healthcheck:
+      disable: true
+
   web:
     build:
       context: ./apps/web
@@ -103,7 +158,9 @@ services:
     restart: unless-stopped
     environment:
       VBX_API_INTERNAL_URL: http://api:8000
-      VBX_AUTH_COOKIES: ${VBX_AUTH_COOKIES:-false}
+      VBX_PROFILE: ${VBX_PROFILE:-dev}
+      # Empty → web derives from VBX_PROFILE (prod → cookies on)
+      VBX_AUTH_COOKIES: ${VBX_AUTH_COOKIES:-}
       VBX_COOKIE_SECURE: ${VBX_COOKIE_SECURE:-false}
       TZ: ${VBX_TIMEZONE:-Europe/Moscow}
     ports:
@@ -130,3 +187,7 @@ volumes:
   vbx_pg:
   vbx_redis:
   vbx_uploads:
+  gowitness_data:
+  nuclei_templates:
+  nuclei_custom:
+  nuclei_data:

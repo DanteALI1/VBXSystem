@@ -1,0 +1,19 @@
+# Shodan host / DNS / search enrichment — live API or mock fixture.
+
+id: shodan
+name: Shodan Enrichment
+version: "0.2.0"
+kind: enrichment
+runtime: python
+entrypoint: worker.py
+offline_capable: false
+capabilities:
+  - enrichment.shodan
+  - shodan.host
+  - shodan.search
+  - shodan.dns
+  - finding.v1
+modes:
+  - host
+  - search
+  - dns

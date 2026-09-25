@@ -1,0 +1,25 @@
+# discovery — lightweight host discovery (CIDR / host list → alive hosts).
+
+id: discovery
+name: Asset Discovery
+version: "0.1.0"
+kind: scanner
+runtime: python
+entrypoint: worker.py
+offline_capable: true
+capabilities:
+  - host_discovery
+  - finding.v1
+defaults:
+  ports: "22,80,443,8000,3000"
+  connect_timeout: 1.0
+  max_hosts: 256
+allowlist_env: VBX_SCAN_ALLOWLIST
+local_allowlist:
+  - 127.0.0.1
+  - scan-target
+  - host.docker.internal
+  - 10.0.0.0/8
+params:
+  targets: "CIDR and/or host list (comma / newline / JSON array)"
+  ports: "optional TCP ports for lightweight connect probe"

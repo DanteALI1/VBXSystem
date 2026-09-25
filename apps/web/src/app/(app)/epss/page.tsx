@@ -2,8 +2,8 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
-import { RefreshCw, TrendingUp } from "lucide-react";
-import { api } from "@/lib/api";
+import { Download, RefreshCw, TrendingUp } from "lucide-react";
+import { api, apiDownload, hasPermission } from "@/lib/api";
 import { useAuth } from "@/lib/useAuth";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
@@ -35,15 +35,20 @@ export default function EpssPage() {
   const [err, setErr] = useState<string | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [exporting, setExporting] = useState(false);
 
-  const canSync = !!user && (user.is_super_admin || user.roles.includes("admin"));
+  const canSync = hasPermission(user, "vuln:sync");
 
   const load = useCallback(async () => {
     setErr(null);
+    setLoading(true);
     try {
       setData(await api<Overview>("/epss?limit=25"));
     } catch (e) {
       setErr(e instanceof Error ? e.message : "Ошибка");
+    } finally {
+      setLoading(false);
     }
   }, []);
 
@@ -66,6 +71,18 @@ export default function EpssPage() {
     }
   }
 
+  async function onExport() {
+    setExporting(true);
+    setErr(null);
+    try {
+      await apiDownload("/epss/export?limit=100", { filename: "epss-export.csv" });
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Ошибка экспорта");
+    } finally {
+      setExporting(false);
+    }
+  }
+
   return (
     <div className="space-y-6" data-testid="epss-page">
       <div className="flex flex-wrap items-end justify-between gap-3">
@@ -77,6 +94,10 @@ export default function EpssPage() {
           </p>
         </div>
         <div className="flex gap-2">
+          <Button type="button" variant="secondary" onClick={onExport} disabled={exporting || loading}>
+            <Download size={14} />
+            {exporting ? "…" : "CSV"}
+          </Button>
           <Button type="button" variant="secondary" onClick={load}>
             <RefreshCw size={14} />
             Обновить
@@ -99,7 +120,7 @@ export default function EpssPage() {
       <div className="grid gap-4 lg:grid-cols-2">
         <Card>
           <h2 className="mb-3 flex items-center gap-2 font-display text-lg font-semibold">
-            <TrendingUp size={16} /> Top predictions
+            <TrendingUp size={16} /> Топ прогнозов
           </h2>
           <div className="overflow-x-auto">
             <table className="w-full text-left text-sm">
@@ -108,7 +129,7 @@ export default function EpssPage() {
                   <th className="pb-2 font-medium">CVE</th>
                   <th className="pb-2 font-medium">EPSS</th>
                   <th className="pb-2 font-medium">pctl</th>
-                  <th className="pb-2 font-medium">Sev</th>
+                  <th className="pb-2 font-medium">Крит.</th>
                 </tr>
               </thead>
               <tbody>
@@ -134,19 +155,21 @@ export default function EpssPage() {
               </tbody>
             </table>
             {!data?.top_predictions?.length && (
-              <p className="text-sm text-muted">Нет оценок. Запустите синхронизацию EPSS.</p>
+              <p className="text-sm text-muted">
+                {loading ? "Загрузка…" : "Нет оценок. Запустите синхронизацию EPSS."}
+              </p>
             )}
           </div>
         </Card>
 
         <Card>
-          <h2 className="mb-3 font-display text-lg font-semibold">Top delta movers</h2>
+          <h2 className="mb-3 font-display text-lg font-semibold">Лидеры по дельте</h2>
           <div className="overflow-x-auto">
             <table className="w-full text-left text-sm">
               <thead className="text-muted">
                 <tr>
                   <th className="pb-2 font-medium">CVE</th>
-                  <th className="pb-2 font-medium">Score</th>
+                  <th className="pb-2 font-medium">Оценка</th>
                   <th className="pb-2 font-medium">Δ</th>
                 </tr>
               </thead>
@@ -159,7 +182,10 @@ export default function EpssPage() {
                       </Link>
                     </td>
                     <td className="py-2">{(r.score * 100).toFixed(2)}%</td>
-                    <td className={`py-2 font-medium ${(r.delta || 0) >= 0 ? "text-ok" : "text-danger"}`}>
+                    <td
+                      className={`py-2 font-medium ${(r.delta || 0) >= 0 ? "text-danger" : "text-ok"}`}
+                      title="Рост EPSS — выше риск"
+                    >
                       {(r.delta || 0) >= 0 ? "+" : ""}
                       {((r.delta || 0) * 100).toFixed(2)}%
                     </td>
@@ -167,7 +193,11 @@ export default function EpssPage() {
                 ))}
               </tbody>
             </table>
-            {!data?.top_deltas?.length && <p className="text-sm text-muted">Нет дельт (нужна история оценок).</p>}
+            {!data?.top_deltas?.length && (
+              <p className="text-sm text-muted">
+                {loading ? "Загрузка…" : "Нет дельт (нужна история оценок)."}
+              </p>
+            )}
           </div>
         </Card>
       </div>

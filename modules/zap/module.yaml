@@ -1,0 +1,25 @@
+# OWASP ZAP scanner — baseline | spider | full | api (allowlisted URLs only).
+
+id: zap
+name: OWASP ZAP Scanner
+version: "0.3.0"
+kind: scanner
+runtime: python
+entrypoint: worker.py
+offline_capable: false
+capabilities:
+  - web.baseline
+  - web.spider
+  - web.active
+  - web.api
+  - finding.v1
+scan_types:
+  - baseline
+  - spider
+  - full
+  - api
+requires:
+  baseline: zap-baseline.py
+  spider: "ZAP daemon at VBX_ZAP_API_URL (spider + active)"
+  full: "zap-full-scan.py OR ZAP daemon"
+  api: "zap-api-scan.py (+ openapi) OR ZAP daemon"
